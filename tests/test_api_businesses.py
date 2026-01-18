@@ -154,7 +154,7 @@ class TestBusinessesEnrich:
         api.bulk_enrich(business_ids)
 
         api.client.post.assert_called_once_with(
-            "/businesses/bulk-enrich",
+            "/businesses/firmographics/bulk_enrich",
             json={"business_ids": business_ids}
         )
 
@@ -183,18 +183,8 @@ class TestBusinessesLookalike:
         api.lookalike(business_id)
 
         api.client.post.assert_called_once_with(
-            "/businesses/lookalike",
-            json={"business_id": business_id, "size": 100}
-        )
-
-    def test_lookalike_custom_size(self, api: BusinessesAPI):
-        """Test lookalike with custom size."""
-        business_id = "abc123"
-        api.lookalike(business_id, size=50)
-
-        api.client.post.assert_called_once_with(
-            "/businesses/lookalike",
-            json={"business_id": business_id, "size": 50}
+            "/businesses/lookalikes/enrich",
+            json={"business_id": business_id}
         )
 
 
@@ -214,7 +204,7 @@ class TestBusinessesAutocomplete:
 
         api.client.get.assert_called_once_with(
             "/businesses/autocomplete",
-            params={"query": query}
+            params={"query": query, "field": "company_name"}
         )
 
 
@@ -227,39 +217,15 @@ class TestBusinessesEvents:
         mock_client = MagicMock(spec=ExploriumAPI)
         return BusinessesAPI(mock_client)
 
-    def test_list_events_basic(self, api: BusinessesAPI):
+    def test_list_events(self, api: BusinessesAPI):
         """Test listing events."""
         business_ids = ["id1", "id2"]
-        api.list_events(business_ids)
-
-        api.client.post.assert_called_once_with(
-            "/businesses/events",
-            json={"business_ids": business_ids, "days": 45}
-        )
-
-    def test_list_events_with_types(self, api: BusinessesAPI):
-        """Test listing events with event types filter."""
-        business_ids = ["id1"]
         event_types = ["new_funding_round", "new_product"]
-        api.list_events(business_ids, event_types=event_types)
+        api.list_events(business_ids, event_types)
 
         api.client.post.assert_called_once_with(
             "/businesses/events",
-            json={
-                "business_ids": business_ids,
-                "days": 45,
-                "event_types": event_types
-            }
-        )
-
-    def test_list_events_custom_days(self, api: BusinessesAPI):
-        """Test listing events with custom days."""
-        business_ids = ["id1"]
-        api.list_events(business_ids, days=30)
-
-        api.client.post.assert_called_once_with(
-            "/businesses/events",
-            json={"business_ids": business_ids, "days": 30}
+            json={"business_ids": business_ids, "event_types": event_types}
         )
 
     def test_enroll_events(self, api: BusinessesAPI):

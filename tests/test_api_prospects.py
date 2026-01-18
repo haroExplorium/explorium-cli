@@ -138,7 +138,7 @@ class TestProspectsEnrich:
         api.enrich_social(prospect_id)
 
         api.client.post.assert_called_once_with(
-            "/prospects/social_media/enrich",
+            "/prospects/linkedin_posts/enrich",
             json={"prospect_id": prospect_id}
         )
 
@@ -148,7 +148,7 @@ class TestProspectsEnrich:
         api.enrich_profile(prospect_id)
 
         api.client.post.assert_called_once_with(
-            "/prospects/professional_profile/enrich",
+            "/prospects/profiles/enrich",
             json={"prospect_id": prospect_id}
         )
 
@@ -158,7 +158,7 @@ class TestProspectsEnrich:
         api.bulk_enrich(prospect_ids)
 
         api.client.post.assert_called_once_with(
-            "/prospects/enrich/bulk",
+            "/prospects/contacts_information/bulk_enrich",
             json={"prospect_ids": prospect_ids}
         )
 
@@ -169,7 +169,7 @@ class TestProspectsEnrich:
         api.bulk_enrich(prospect_ids, enrich_types=enrich_types)
 
         api.client.post.assert_called_once_with(
-            "/prospects/enrich/bulk",
+            "/prospects/contacts_information/bulk_enrich",
             json={
                 "prospect_ids": prospect_ids,
                 "enrich_types": enrich_types
@@ -240,39 +240,15 @@ class TestProspectsEvents:
         mock_client = MagicMock(spec=ExploriumAPI)
         return ProspectsAPI(mock_client)
 
-    def test_list_events_basic(self, api: ProspectsAPI):
+    def test_list_events(self, api: ProspectsAPI):
         """Test listing events."""
         prospect_ids = ["id1", "id2"]
-        api.list_events(prospect_ids)
-
-        api.client.post.assert_called_once_with(
-            "/prospects/events",
-            json={"prospect_ids": prospect_ids, "days": 45}
-        )
-
-    def test_list_events_with_types(self, api: ProspectsAPI):
-        """Test listing events with event types filter."""
-        prospect_ids = ["id1"]
         event_types = ["prospect_changed_company", "prospect_changed_role"]
-        api.list_events(prospect_ids, event_types=event_types)
+        api.list_events(prospect_ids, event_types)
 
         api.client.post.assert_called_once_with(
             "/prospects/events",
-            json={
-                "prospect_ids": prospect_ids,
-                "days": 45,
-                "event_types": event_types
-            }
-        )
-
-    def test_list_events_custom_days(self, api: ProspectsAPI):
-        """Test listing events with custom days."""
-        prospect_ids = ["id1"]
-        api.list_events(prospect_ids, days=30)
-
-        api.client.post.assert_called_once_with(
-            "/prospects/events",
-            json={"prospect_ids": prospect_ids, "days": 30}
+            json={"prospect_ids": prospect_ids, "event_types": event_types}
         )
 
     def test_enroll_events(self, api: ProspectsAPI):
@@ -284,7 +260,7 @@ class TestProspectsEvents:
         api.enroll_events(prospect_ids, event_types, enrollment_key)
 
         api.client.post.assert_called_once_with(
-            "/prospects/enrollments",
+            "/prospects/events/enrollments",
             json={
                 "prospect_ids": prospect_ids,
                 "event_types": event_types,
@@ -296,4 +272,4 @@ class TestProspectsEvents:
         """Test listing enrollments."""
         api.list_enrollments()
 
-        api.client.get.assert_called_once_with("/prospects/enrollments")
+        api.client.get.assert_called_once_with("/prospects/events/enrollments")

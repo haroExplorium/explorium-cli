@@ -659,34 +659,23 @@ class TestBusinessBulkEnrichExamples:
 class TestBusinessLookalikeExamples:
     """Tests for businesses lookalike command examples from documentation."""
 
-    def test_lookalike_default_size(self, runner: CliRunner, config_file: Path, mock_businesses_api):
+    def test_lookalike_basic(self, runner: CliRunner, config_file: Path, mock_businesses_api):
         """Test: explorium businesses lookalike --id '8adce3ca1cef0c986b22310e369a0793'"""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "businesses", "lookalike",
             "--id", "8adce3ca1cef0c986b22310e369a0793"
         ])
-        mock_businesses_api.lookalike.assert_called_once_with("8adce3ca1cef0c986b22310e369a0793", 100)
-
-    def test_lookalike_custom_size(self, runner: CliRunner, config_file: Path, mock_businesses_api):
-        """Test: explorium businesses lookalike --id 'id' --size 50"""
-        result = runner.invoke(cli, [
-            "--config", str(config_file),
-            "businesses", "lookalike",
-            "--id", "8adce3ca1cef0c986b22310e369a0793",
-            "--size", "50"
-        ])
-        mock_businesses_api.lookalike.assert_called_once_with("8adce3ca1cef0c986b22310e369a0793", 50)
+        mock_businesses_api.lookalike.assert_called_once_with("8adce3ca1cef0c986b22310e369a0793")
 
     def test_lookalike_short_form(self, runner: CliRunner, config_file: Path, mock_businesses_api):
-        """Test: explorium businesses lookalike -i 'id' --size 25"""
+        """Test: explorium businesses lookalike -i 'id'"""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "businesses", "lookalike",
-            "-i", "8adce3ca1cef0c986b22310e369a0793",
-            "--size", "25"
+            "-i", "8adce3ca1cef0c986b22310e369a0793"
         ])
-        mock_businesses_api.lookalike.assert_called_once_with("8adce3ca1cef0c986b22310e369a0793", 25)
+        mock_businesses_api.lookalike.assert_called_once_with("8adce3ca1cef0c986b22310e369a0793")
 
     def test_lookalike_with_table_output(self, runner: CliRunner, config_file: Path, mock_businesses_api):
         """Test: explorium businesses lookalike --id 'id' -o table"""
@@ -695,7 +684,7 @@ class TestBusinessLookalikeExamples:
             "-o", "table",
             "businesses", "lookalike",
             "--id", "8adce3ca1cef0c986b22310e369a0793"])
-        mock_businesses_api.lookalike.assert_called_once_with("8adce3ca1cef0c986b22310e369a0793", 100)
+        mock_businesses_api.lookalike.assert_called_once_with("8adce3ca1cef0c986b22310e369a0793")
 
 
 # =============================================================================
@@ -741,64 +730,43 @@ class TestBusinessEventsExamples:
     """Tests for businesses events command examples from documentation."""
 
     def test_events_list_single_business(self, runner: CliRunner, config_file: Path, mock_businesses_api):
-        """Test: explorium businesses events list --ids 'id1'"""
+        """Test: explorium businesses events list --ids 'id1' --events 'new_funding_round'"""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "businesses", "events", "list",
-            "--ids", "8adce3ca1cef0c986b22310e369a0793"
+            "--ids", "8adce3ca1cef0c986b22310e369a0793",
+            "--events", "new_funding_round"
         ])
         mock_businesses_api.list_events.assert_called_once_with(
             ["8adce3ca1cef0c986b22310e369a0793"],
-            event_types=None,
-            days=45
+            ["new_funding_round"]
         )
 
     def test_events_list_multiple_businesses(self, runner: CliRunner, config_file: Path, mock_businesses_api):
-        """Test: explorium businesses events list --ids 'id1,id2,id3'"""
+        """Test: explorium businesses events list --ids 'id1,id2,id3' --events 'new_funding_round'"""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "businesses", "events", "list",
-            "--ids", "id1,id2,id3"
+            "--ids", "id1,id2,id3",
+            "--events", "new_funding_round"
         ])
         mock_businesses_api.list_events.assert_called_once_with(
             ["id1", "id2", "id3"],
-            event_types=None,
-            days=45
+            ["new_funding_round"]
         )
 
-    def test_events_list_with_event_filter(self, runner: CliRunner, config_file: Path, mock_businesses_api):
-        """Test: explorium businesses events list --ids 'id1,id2' --events 'new_funding_round'"""
+    def test_events_list_with_multiple_event_types(self, runner: CliRunner, config_file: Path, mock_businesses_api):
+        """Test: explorium businesses events list --ids 'id1,id2' --events 'new_funding_round,new_product'"""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "businesses", "events", "list",
             "--ids", "id1,id2",
-            "--events", "new_funding_round"
+            "--events", "new_funding_round,new_product"
         ])
         mock_businesses_api.list_events.assert_called_once_with(
             ["id1", "id2"],
-            event_types=["new_funding_round"],
-            days=45
+            ["new_funding_round", "new_product"]
         )
-
-    def test_events_list_multiple_event_types(self, runner: CliRunner, config_file: Path, mock_businesses_api):
-        """Test: explorium businesses events list --ids 'id1' --events 'new_funding_round,new_product,ipo_announcement'"""
-        result = runner.invoke(cli, [
-            "--config", str(config_file),
-            "businesses", "events", "list",
-            "--ids", "id1",
-            "--events", "new_funding_round,new_product,ipo_announcement"
-        ])
-        mock_businesses_api.list_events.assert_called_once()
-
-    def test_events_list_custom_days(self, runner: CliRunner, config_file: Path, mock_businesses_api):
-        """Test: explorium businesses events list --ids 'id1' --days 60"""
-        result = runner.invoke(cli, [
-            "--config", str(config_file),
-            "businesses", "events", "list",
-            "--ids", "id1",
-            "--days", "60"
-        ])
-        mock_businesses_api.list_events.assert_called_once()
 
     def test_events_list_combined(self, runner: CliRunner, config_file: Path, mock_businesses_api):
         """Test: Combined events list with filters and table output"""
@@ -807,8 +775,7 @@ class TestBusinessEventsExamples:
             "-o", "table",
             "businesses", "events", "list",
             "--ids", "id1,id2",
-            "--events", "new_funding_round,merger_and_acquisitions",
-            "--days", "90"])
+            "--events", "new_funding_round,merger_and_acquisitions"])
         mock_businesses_api.list_events.assert_called_once()
 
     def test_events_enroll_funding_ipo(self, runner: CliRunner, config_file: Path, mock_businesses_api):
@@ -873,18 +840,17 @@ class TestProspectMatchExamples:
     """Tests for prospects match command examples from documentation."""
 
     def test_match_by_name_and_business(self, runner: CliRunner, config_file: Path, mock_prospects_api):
-        """Test: explorium prospects match --first-name 'John' --last-name 'Doe' --business-id 'id'"""
+        """Test: explorium prospects match --first-name 'John' --last-name 'Doe' --company-name 'Acme'"""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "prospects", "match",
             "--first-name", "John",
             "--last-name", "Doe",
-            "--business-id", "8adce3ca1cef0c986b22310e369a0793"
+            "--company-name", "Acme Corp"
         ])
         mock_prospects_api.match.assert_called_once_with([{
-            "first_name": "John",
-            "last_name": "Doe",
-            "business_id": "8adce3ca1cef0c986b22310e369a0793"
+            "full_name": "John Doe",
+            "company_name": "Acme Corp"
         }])
 
     def test_match_by_linkedin(self, runner: CliRunner, config_file: Path, mock_prospects_api):
@@ -908,8 +874,7 @@ class TestProspectMatchExamples:
             "--last-name", "Smith"
         ])
         mock_prospects_api.match.assert_called_once_with([{
-            "first_name": "Jane",
-            "last_name": "Smith"
+            "full_name": "Jane Smith"
         }])
 
     def test_match_from_file(self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path):
@@ -1411,29 +1376,29 @@ class TestProspectEventsExamples:
     """Tests for prospects events command examples from documentation."""
 
     def test_events_list_single_prospect(self, runner: CliRunner, config_file: Path, mock_prospects_api):
-        """Test: explorium prospects events list --ids 'prospect_id1'"""
+        """Test: explorium prospects events list --ids 'prospect_id1' --events 'prospect_changed_company'"""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "prospects", "events", "list",
-            "--ids", "prospect_id1"
+            "--ids", "prospect_id1",
+            "--events", "prospect_changed_company"
         ])
         mock_prospects_api.list_events.assert_called_once_with(
             ["prospect_id1"],
-            event_types=None,
-            days=45
+            ["prospect_changed_company"]
         )
 
     def test_events_list_multiple_prospects(self, runner: CliRunner, config_file: Path, mock_prospects_api):
-        """Test: explorium prospects events list --ids 'id1,id2,id3'"""
+        """Test: explorium prospects events list --ids 'id1,id2,id3' --events 'prospect_changed_company'"""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "prospects", "events", "list",
-            "--ids", "id1,id2,id3"
+            "--ids", "id1,id2,id3",
+            "--events", "prospect_changed_company"
         ])
         mock_prospects_api.list_events.assert_called_once_with(
             ["id1", "id2", "id3"],
-            event_types=None,
-            days=45
+            ["prospect_changed_company"]
         )
 
     def test_events_list_with_event_filter(self, runner: CliRunner, config_file: Path, mock_prospects_api):
@@ -1456,16 +1421,6 @@ class TestProspectEventsExamples:
         ])
         mock_prospects_api.list_events.assert_called_once()
 
-    def test_events_list_custom_days(self, runner: CliRunner, config_file: Path, mock_prospects_api):
-        """Test: explorium prospects events list --ids 'id1' --days 90"""
-        result = runner.invoke(cli, [
-            "--config", str(config_file),
-            "prospects", "events", "list",
-            "--ids", "id1",
-            "--days", "90"
-        ])
-        mock_prospects_api.list_events.assert_called_once()
-
     def test_events_list_combined(self, runner: CliRunner, config_file: Path, mock_prospects_api):
         """Test: Combined prospect events list"""
         result = runner.invoke(cli, [
@@ -1473,8 +1428,7 @@ class TestProspectEventsExamples:
             "-o", "table",
             "prospects", "events", "list",
             "--ids", "id1,id2",
-            "--events", "prospect_changed_company",
-            "--days", "60"])
+            "--events", "prospect_changed_company"])
         mock_prospects_api.list_events.assert_called_once()
 
     def test_events_enroll_job_changes(self, runner: CliRunner, config_file: Path, mock_prospects_api):
@@ -1638,7 +1592,7 @@ class TestWorkflowExamples:
             "-o", "table",
             "businesses", "events", "list",
             "--ids", "8adce3ca1cef0c986b22310e369a0793",
-            "--days", "90"])
+            "--events", "new_funding_round"])
         assert mock_businesses_api.list_events.called
 
         # Step 4: Find similar companies
@@ -1646,8 +1600,7 @@ class TestWorkflowExamples:
             "--config", str(config_file),
             "-o", "table",
             "businesses", "lookalike",
-            "--id", "8adce3ca1cef0c986b22310e369a0793",
-            "--size", "20"])
+            "--id", "8adce3ca1cef0c986b22310e369a0793"])
         assert mock_businesses_api.lookalike.called
 
     def test_workflow_build_prospect_list(

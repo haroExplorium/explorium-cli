@@ -250,7 +250,7 @@ class TestBusinessEventsCommands:
 
             result = runner.invoke(
                 cli,
-                ["--config", str(config_with_key), "businesses", "events", "list", "--ids", "id1,id2"]
+                ["--config", str(config_with_key), "businesses", "events", "list", "--ids", "id1,id2", "--events", "new_funding_round"]
             )
 
             mock_instance.list_events.assert_called_once()
