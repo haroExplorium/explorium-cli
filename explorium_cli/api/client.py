@@ -1,5 +1,6 @@
 """Base API client for Explorium."""
 
+import time
 import requests
 from typing import Any, Optional
 
@@ -19,26 +20,66 @@ class APIError(Exception):
         super().__init__(self.message)
 
 
+# HTTP status codes that should trigger a retry
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
 class ExploriumAPI:
     """Base API client for Explorium endpoints."""
 
     BASE_URL = "https://api.explorium.ai/v1"
 
-    def __init__(self, api_key: str, base_url: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: Optional[str] = None,
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+        retry_backoff: float = 2.0,
+        timeout: int = 30
+    ):
         """
         Initialize the Explorium API client.
 
         Args:
             api_key: The API key for authentication.
             base_url: Optional custom base URL.
+            max_retries: Maximum number of retry attempts (default: 3).
+            retry_delay: Initial delay between retries in seconds (default: 1.0).
+            retry_backoff: Multiplier for exponential backoff (default: 2.0).
+            timeout: Request timeout in seconds (default: 30).
         """
         self.api_key = api_key
         self.base_url = base_url or self.BASE_URL
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.retry_backoff = retry_backoff
+        self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update({
             "API_KEY": api_key,
             "Content-Type": "application/json",
         })
+
+    def _should_retry(self, exception: Exception) -> bool:
+        """
+        Determine if the request should be retried based on the exception.
+
+        Args:
+            exception: The exception that was raised.
+
+        Returns:
+            True if the request should be retried, False otherwise.
+        """
+        if isinstance(exception, requests.exceptions.HTTPError):
+            if exception.response is not None:
+                return exception.response.status_code in RETRYABLE_STATUS_CODES
+        elif isinstance(exception, (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        )):
+            return True
+        return False
 
     def _request(
         self,
@@ -49,7 +90,7 @@ class ExploriumAPI:
         **kwargs: Any
     ) -> dict:
         """
-        Make an API request.
+        Make an API request with retry logic.
 
         Args:
             method: HTTP method (GET, POST, PUT, DELETE).
@@ -62,33 +103,57 @@ class ExploriumAPI:
             JSON response as dictionary.
 
         Raises:
-            APIError: If the request fails.
+            APIError: If the request fails after all retries.
         """
         url = f"{self.base_url}{endpoint}"
+        kwargs.setdefault("timeout", self.timeout)
 
-        try:
-            response = self.session.request(
-                method,
-                url,
-                params=params,
-                json=json,
-                **kwargs
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            error_response: Optional[dict] = None
+        last_exception: Optional[Exception] = None
+        delay = self.retry_delay
+
+        for attempt in range(self.max_retries + 1):
             try:
-                error_response = e.response.json()
-            except (ValueError, AttributeError):
-                pass
-            raise APIError(
-                f"API request failed: {e}",
-                status_code=e.response.status_code if e.response else None,
-                response=error_response
-            )
-        except requests.exceptions.RequestException as e:
-            raise APIError(f"Request failed: {e}")
+                response = self.session.request(
+                    method,
+                    url,
+                    params=params,
+                    json=json,
+                    **kwargs
+                )
+                response.raise_for_status()
+                return response.json()
+
+            except requests.exceptions.HTTPError as e:
+                last_exception = e
+                if not self._should_retry(e) or attempt >= self.max_retries:
+                    error_response: Optional[dict] = None
+                    try:
+                        error_response = e.response.json()
+                    except (ValueError, AttributeError):
+                        pass
+                    raise APIError(
+                        f"API request failed: {e}",
+                        status_code=e.response.status_code if e.response else None,
+                        response=error_response
+                    )
+
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ) as e:
+                last_exception = e
+                if attempt >= self.max_retries:
+                    raise APIError(f"Request failed after {self.max_retries} retries: {e}")
+
+            except requests.exceptions.RequestException as e:
+                raise APIError(f"Request failed: {e}")
+
+            # Wait before retrying with exponential backoff
+            time.sleep(delay)
+            delay *= self.retry_backoff
+
+        # This should not be reached, but just in case
+        raise APIError(f"Request failed: {last_exception}")
 
     def get(self, endpoint: str, params: Optional[dict] = None, **kwargs: Any) -> dict:
         """Make a GET request."""

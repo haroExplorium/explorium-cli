@@ -53,7 +53,8 @@ class TestExploriumAPIRequests:
                 "GET",
                 "https://api.explorium.ai/v1/businesses/autocomplete",
                 params={"query": "test"},
-                json=None
+                json=None,
+                timeout=30
             )
             assert result == {"status": "success", "data": []}
 
@@ -66,7 +67,8 @@ class TestExploriumAPIRequests:
                 "POST",
                 "https://api.explorium.ai/v1/businesses/match",
                 params=None,
-                json={"businesses_to_match": []}
+                json={"businesses_to_match": []},
+                timeout=30
             )
             assert result == {"status": "success", "data": []}
 
@@ -79,7 +81,8 @@ class TestExploriumAPIRequests:
                 "PUT",
                 "https://api.explorium.ai/v1/webhooks/partner1",
                 params=None,
-                json={"url": "https://new.url.com"}
+                json={"url": "https://new.url.com"},
+                timeout=30
             )
             assert result == {"status": "success", "data": []}
 
@@ -92,7 +95,8 @@ class TestExploriumAPIRequests:
                 "DELETE",
                 "https://api.explorium.ai/v1/webhooks/partner1",
                 params=None,
-                json=None
+                json=None,
+                timeout=30
             )
             assert result == {"status": "success", "data": []}
 
@@ -102,8 +106,8 @@ class TestExploriumAPIErrorHandling:
 
     @pytest.fixture
     def api_client(self) -> ExploriumAPI:
-        """Create an API client for testing."""
-        return ExploriumAPI(api_key="test_key")
+        """Create an API client for testing with no retries."""
+        return ExploriumAPI(api_key="test_key", max_retries=0)
 
     def test_http_error_with_json_response(self, api_client: ExploriumAPI):
         """Test handling HTTP error with JSON error response."""
@@ -240,3 +244,139 @@ class TestAPIError:
             raise APIError("Test error", status_code=500)
 
         assert exc_info.value.status_code == 500
+
+
+class TestExploriumAPIRetry:
+    """Tests for API retry mechanism."""
+
+    def test_retry_on_500_error(self):
+        """Test that 500 errors trigger retries."""
+        api = ExploriumAPI(api_key="test_key", max_retries=2, retry_delay=0.01)
+
+        mock_response_fail = MagicMock()
+        mock_response_fail.status_code = 500
+        mock_response_fail.json.return_value = {"error": "Server error"}
+        http_error = requests.exceptions.HTTPError(response=mock_response_fail)
+        mock_response_fail.raise_for_status.side_effect = http_error
+
+        mock_response_success = MagicMock()
+        mock_response_success.json.return_value = {"status": "success"}
+        mock_response_success.raise_for_status.return_value = None
+
+        with patch.object(
+            api.session,
+            "request",
+            side_effect=[mock_response_fail, mock_response_success]
+        ) as mock_req:
+            result = api.get("/test")
+            assert result == {"status": "success"}
+            assert mock_req.call_count == 2
+
+    def test_retry_on_connection_error(self):
+        """Test that connection errors trigger retries."""
+        api = ExploriumAPI(api_key="test_key", max_retries=2, retry_delay=0.01)
+
+        mock_response_success = MagicMock()
+        mock_response_success.json.return_value = {"status": "success"}
+        mock_response_success.raise_for_status.return_value = None
+
+        with patch.object(
+            api.session,
+            "request",
+            side_effect=[
+                requests.exceptions.ConnectionError("Connection refused"),
+                mock_response_success
+            ]
+        ) as mock_req:
+            result = api.get("/test")
+            assert result == {"status": "success"}
+            assert mock_req.call_count == 2
+
+    def test_retry_on_timeout(self):
+        """Test that timeout errors trigger retries."""
+        api = ExploriumAPI(api_key="test_key", max_retries=2, retry_delay=0.01)
+
+        mock_response_success = MagicMock()
+        mock_response_success.json.return_value = {"status": "success"}
+        mock_response_success.raise_for_status.return_value = None
+
+        with patch.object(
+            api.session,
+            "request",
+            side_effect=[
+                requests.exceptions.Timeout("Request timed out"),
+                mock_response_success
+            ]
+        ) as mock_req:
+            result = api.get("/test")
+            assert result == {"status": "success"}
+            assert mock_req.call_count == 2
+
+    def test_no_retry_on_400_error(self):
+        """Test that 400 errors do not trigger retries."""
+        api = ExploriumAPI(api_key="test_key", max_retries=2, retry_delay=0.01)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.json.return_value = {"error": "Bad request"}
+        http_error = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = http_error
+
+        with patch.object(api.session, "request", return_value=mock_response) as mock_req:
+            with pytest.raises(APIError) as exc_info:
+                api.get("/test")
+            assert exc_info.value.status_code == 400
+            assert mock_req.call_count == 1
+
+    def test_max_retries_exceeded(self):
+        """Test that error is raised after max retries exceeded."""
+        api = ExploriumAPI(api_key="test_key", max_retries=2, retry_delay=0.01)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_response.json.return_value = {"error": "Service unavailable"}
+        http_error = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = http_error
+
+        with patch.object(api.session, "request", return_value=mock_response) as mock_req:
+            with pytest.raises(APIError) as exc_info:
+                api.get("/test")
+            assert exc_info.value.status_code == 503
+            assert mock_req.call_count == 3  # Initial + 2 retries
+
+    def test_custom_retry_settings(self):
+        """Test client with custom retry settings."""
+        api = ExploriumAPI(
+            api_key="test_key",
+            max_retries=5,
+            retry_delay=0.5,
+            retry_backoff=3.0,
+            timeout=60
+        )
+        assert api.max_retries == 5
+        assert api.retry_delay == 0.5
+        assert api.retry_backoff == 3.0
+        assert api.timeout == 60
+
+    def test_retry_on_rate_limit(self):
+        """Test that 429 rate limit errors trigger retries."""
+        api = ExploriumAPI(api_key="test_key", max_retries=1, retry_delay=0.01)
+
+        mock_response_fail = MagicMock()
+        mock_response_fail.status_code = 429
+        mock_response_fail.json.return_value = {"error": "Rate limited"}
+        http_error = requests.exceptions.HTTPError(response=mock_response_fail)
+        mock_response_fail.raise_for_status.side_effect = http_error
+
+        mock_response_success = MagicMock()
+        mock_response_success.json.return_value = {"status": "success"}
+        mock_response_success.raise_for_status.return_value = None
+
+        with patch.object(
+            api.session,
+            "request",
+            side_effect=[mock_response_fail, mock_response_success]
+        ) as mock_req:
+            result = api.get("/test")
+            assert result == {"status": "success"}
+            assert mock_req.call_count == 2
