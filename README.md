@@ -131,17 +131,54 @@ explorium businesses search --country us --page 2 --size 50
 
 #### Enrich Business
 
-Get detailed information about a business.
+Get detailed information about a business. You can use either an ID or match parameters (name, domain, linkedin).
 
 ```bash
-# Single business enrichment
+# Enrich by ID
 explorium businesses enrich --id "8adce3ca1cef0c986b22310e369a0793"
 
-# Bulk enrichment (up to 50)
+# Enrich by company name (no ID needed!)
+explorium businesses enrich --name "Salesforce"
+
+# Enrich by domain
+explorium businesses enrich --domain "google.com"
+
+# Enrich by LinkedIn URL
+explorium businesses enrich --linkedin "https://linkedin.com/company/microsoft"
+
+# Combine match parameters for better accuracy
+explorium businesses enrich --name "Stripe" --domain "stripe.com"
+
+# Adjust confidence threshold (default: 0.8)
+explorium businesses enrich --name "Acme Corp" --min-confidence 0.6
+```
+
+**All enrichment types support match parameters:**
+```bash
+# Tech stack for Salesforce
+explorium businesses enrich-tech --name "Salesforce"
+
+# Financial metrics for Microsoft
+explorium businesses enrich-financial --domain "microsoft.com"
+
+# Workforce trends for Amazon
+explorium businesses enrich-workforce --name "Amazon"
+
+# Website keyword search for Apple
+explorium businesses enrich-keywords --name "Apple" --keywords "AI,privacy,security"
+```
+
+**Bulk enrichment:**
+```bash
+# By IDs
 explorium businesses bulk-enrich --ids "id1,id2,id3"
 
-# Bulk from file
+# From file with IDs
 explorium businesses bulk-enrich -f business_ids.txt
+
+# From file with match parameters (no IDs needed!)
+# companies.json: [{"name": "Salesforce"}, {"domain": "hubspot.com"}]
+explorium businesses bulk-enrich --match-file companies.json
 ```
 
 #### Lookalike
@@ -149,7 +186,14 @@ explorium businesses bulk-enrich -f business_ids.txt
 Find similar companies.
 
 ```bash
+# By ID
 explorium businesses lookalike --id "8adce3ca1cef0c986b22310e369a0793"
+
+# By name (no ID needed!)
+explorium businesses lookalike --name "Salesforce"
+
+# By domain
+explorium businesses lookalike --domain "stripe.com"
 ```
 
 #### Autocomplete
@@ -244,20 +288,51 @@ explorium prospects search \
 
 #### Enrich Prospect
 
-Get detailed information about a prospect.
+Get detailed information about a prospect. You can use either an ID or match parameters (name, linkedin, company).
 
 ```bash
-# Contact information (email, phone)
+# By ID
 explorium prospects enrich contacts --id "prospect_id"
-
-# Social media profiles
 explorium prospects enrich social --id "prospect_id"
-
-# Professional profile
 explorium prospects enrich profile --id "prospect_id"
 
-# Bulk enrichment
+# By name and company (no ID needed!)
+explorium prospects enrich contacts \
+  --first-name "Satya" \
+  --last-name "Nadella" \
+  --company-name "Microsoft"
+
+# By LinkedIn URL
+explorium prospects enrich contacts --linkedin "https://linkedin.com/in/satyanadella"
+
+# Social media for Marc Benioff
+explorium prospects enrich social \
+  --first-name "Marc" \
+  --last-name "Benioff" \
+  --company-name "Salesforce"
+
+# Professional profile for Sundar Pichai
+explorium prospects enrich profile \
+  --first-name "Sundar" \
+  --last-name "Pichai" \
+  --company-name "Google"
+
+# Adjust confidence threshold
+explorium prospects enrich contacts \
+  --first-name "John" \
+  --last-name "Smith" \
+  --company-name "Acme Corp" \
+  --min-confidence 0.6
+```
+
+**Bulk enrichment:**
+```bash
+# By IDs
 explorium prospects bulk-enrich --ids "id1,id2,id3"
+
+# From file with match parameters (no IDs needed!)
+# prospects.json: [{"full_name": "Satya Nadella", "company_name": "Microsoft"}]
+explorium prospects bulk-enrich --match-file prospects.json
 ```
 
 #### Autocomplete
@@ -376,14 +451,27 @@ Output is a formatted table using Rich library.
 # 1. Initialize configuration
 explorium config init --api-key "your_key"
 
-# 2. Match a target company
+# 2. Enrich a target company directly by name (no need to match first!)
+explorium businesses enrich --name "Salesforce" -o table
+
+# 3. Get their tech stack
+explorium businesses enrich-tech --name "Salesforce"
+
+# 4. Find similar companies
+explorium businesses lookalike --name "Salesforce"
+
+# 5. Get contact info for their CEO
+explorium prospects enrich contacts \
+  --first-name "Marc" \
+  --last-name "Benioff" \
+  --company-name "Salesforce"
+
+# 6. Traditional workflow still works with IDs
+# Match a target company
 explorium businesses match --name "Acme Corp" --domain "acme.com"
 # Returns: business_id = "abc123"
 
-# 3. Enrich the company
-explorium businesses enrich --id "abc123" -o table
-
-# 4. Find decision makers
+# Find decision makers
 explorium prospects search \
   --business-id "abc123" \
   --job-level "cxo,vp" \
@@ -391,19 +479,40 @@ explorium prospects search \
   --has-email \
   -o table
 
-# 5. Enrich prospect contacts
-explorium prospects enrich contacts --id "prospect_id_1"
-
-# 6. Set up event monitoring
+# 7. Set up event monitoring
 explorium businesses events enroll \
   --ids "abc123" \
   --events "new_funding_round,new_product" \
   --key "acme_monitoring"
 
-# 7. Register webhook for notifications
+# 8. Register webhook for notifications
 explorium webhooks create \
   --partner-id "my_app" \
   --url "https://myapp.com/explorium-webhook"
+```
+
+### Match-Based Enrichment (No IDs Required)
+
+The fastest way to get data is using match parameters directly:
+
+```bash
+# Business enrichment by name/domain
+explorium businesses enrich --name "Stripe"
+explorium businesses enrich-tech --domain "notion.so"
+explorium businesses enrich-financial --name "Shopify"
+
+# Prospect enrichment by name/linkedin
+explorium prospects enrich contacts \
+  --first-name "Tim" \
+  --last-name "Cook" \
+  --company-name "Apple"
+
+explorium prospects enrich profile \
+  --linkedin "https://linkedin.com/in/jeffweiner08"
+
+# Bulk enrichment from match files
+explorium businesses bulk-enrich --match-file companies.json
+explorium prospects bulk-enrich --match-file prospects.json
 ```
 
 ### Batch Processing

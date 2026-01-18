@@ -7,6 +7,64 @@ import click
 
 from explorium_cli.api.prospects import ProspectsAPI
 from explorium_cli.utils import get_api, handle_api_call
+from explorium_cli.formatters import output_error
+from explorium_cli.match_utils import (
+    prospect_match_options,
+    resolve_prospect_id,
+    validate_prospect_match_params,
+    MatchError,
+    LowConfidenceError,
+)
+
+
+def _handle_match_error(error: MatchError) -> None:
+    """Handle match errors with user-friendly output."""
+    output_error(error.message)
+    raise click.Abort()
+
+
+def _handle_low_confidence_error(error: LowConfidenceError) -> None:
+    """Handle low confidence errors with suggestions."""
+    output_error(error.message)
+    click.echo("\nSuggestions (try --min-confidence to lower threshold):", err=True)
+    for i, suggestion in enumerate(error.suggestions[:5], 1):
+        confidence = suggestion.get("match_confidence", 0)
+        first_name = suggestion.get("first_name", "")
+        last_name = suggestion.get("last_name", "")
+        prospect_id = suggestion.get("prospect_id", "N/A")
+        click.echo(f"  {i}. {first_name} {last_name} (ID: {prospect_id}, confidence: {confidence:.2f})", err=True)
+    raise click.Abort()
+
+
+def _resolve_prospect_id_with_errors(
+    prospects_api: ProspectsAPI,
+    prospect_id: Optional[str],
+    first_name: Optional[str],
+    last_name: Optional[str],
+    linkedin: Optional[str],
+    company_name: Optional[str],
+    min_confidence: float
+) -> str:
+    """Resolve prospect ID with proper error handling."""
+    try:
+        validate_prospect_match_params(prospect_id, first_name, last_name, linkedin, company_name)
+        return resolve_prospect_id(
+            prospects_api,
+            prospect_id=prospect_id,
+            first_name=first_name,
+            last_name=last_name,
+            linkedin=linkedin,
+            company_name=company_name,
+            min_confidence=min_confidence
+        )
+    except ValueError as e:
+        raise click.UsageError(str(e))
+    except MatchError as e:
+        _handle_match_error(e)
+        raise  # Never reached, but makes type checker happy
+    except LowConfidenceError as e:
+        _handle_low_confidence_error(e)
+        raise  # Never reached, but makes type checker happy
 
 
 @click.group()
@@ -140,33 +198,69 @@ def enrich(ctx: click.Context) -> None:
 
 
 @enrich.command()
-@click.option("--id", "-i", "prospect_id", required=True, help="Prospect ID")
+@prospect_match_options
 @click.pass_context
-def contacts(ctx: click.Context, prospect_id: str) -> None:
+def contacts(
+    ctx: click.Context,
+    prospect_id: Optional[str],
+    first_name: Optional[str],
+    last_name: Optional[str],
+    linkedin: Optional[str],
+    company_name: Optional[str],
+    min_confidence: float
+) -> None:
     """Enrich prospect contact information (email, phone)."""
     api = get_api(ctx)
     prospects_api = ProspectsAPI(api)
-    handle_api_call(ctx, prospects_api.enrich_contacts, prospect_id)
+
+    resolved_id = _resolve_prospect_id_with_errors(
+        prospects_api, prospect_id, first_name, last_name, linkedin, company_name, min_confidence
+    )
+    handle_api_call(ctx, prospects_api.enrich_contacts, resolved_id)
 
 
 @enrich.command()
-@click.option("--id", "-i", "prospect_id", required=True, help="Prospect ID")
+@prospect_match_options
 @click.pass_context
-def social(ctx: click.Context, prospect_id: str) -> None:
+def social(
+    ctx: click.Context,
+    prospect_id: Optional[str],
+    first_name: Optional[str],
+    last_name: Optional[str],
+    linkedin: Optional[str],
+    company_name: Optional[str],
+    min_confidence: float
+) -> None:
     """Enrich prospect social media profiles."""
     api = get_api(ctx)
     prospects_api = ProspectsAPI(api)
-    handle_api_call(ctx, prospects_api.enrich_social, prospect_id)
+
+    resolved_id = _resolve_prospect_id_with_errors(
+        prospects_api, prospect_id, first_name, last_name, linkedin, company_name, min_confidence
+    )
+    handle_api_call(ctx, prospects_api.enrich_social, resolved_id)
 
 
 @enrich.command()
-@click.option("--id", "-i", "prospect_id", required=True, help="Prospect ID")
+@prospect_match_options
 @click.pass_context
-def profile(ctx: click.Context, prospect_id: str) -> None:
+def profile(
+    ctx: click.Context,
+    prospect_id: Optional[str],
+    first_name: Optional[str],
+    last_name: Optional[str],
+    linkedin: Optional[str],
+    company_name: Optional[str],
+    min_confidence: float
+) -> None:
     """Enrich prospect professional profile."""
     api = get_api(ctx)
     prospects_api = ProspectsAPI(api)
-    handle_api_call(ctx, prospects_api.enrich_profile, prospect_id)
+
+    resolved_id = _resolve_prospect_id_with_errors(
+        prospects_api, prospect_id, first_name, last_name, linkedin, company_name, min_confidence
+    )
+    handle_api_call(ctx, prospects_api.enrich_profile, resolved_id)
 
 
 @prospects.command("bulk-enrich")
@@ -176,24 +270,76 @@ def profile(ctx: click.Context, prospect_id: str) -> None:
     type=click.File("r"),
     help="File with prospect IDs (one per line)"
 )
+@click.option(
+    "--match-file",
+    type=click.File("r"),
+    help="JSON file with match params (full_name, linkedin, company_name) to resolve IDs"
+)
 @click.option("--types", help="Enrichment types (comma-separated)")
+@click.option(
+    "--min-confidence",
+    type=float,
+    default=0.8,
+    help="Minimum match confidence (0-1, default: 0.8)"
+)
 @click.pass_context
 def bulk_enrich(
     ctx: click.Context,
     ids: Optional[str],
     file,
-    types: Optional[str]
+    match_file,
+    types: Optional[str],
+    min_confidence: float
 ) -> None:
     """Bulk enrich multiple prospects (up to 50)."""
     api = get_api(ctx)
     prospects_api = ProspectsAPI(api)
 
+    prospect_ids = []
+
     if file:
         prospect_ids = [line.strip() for line in file if line.strip()]
     elif ids:
         prospect_ids = [id.strip() for id in ids.split(",")]
+    elif match_file:
+        # Read match params and resolve each to IDs
+        match_params_list = json.load(match_file)
+        match_failures = []
+
+        for i, params in enumerate(match_params_list):
+            try:
+                # Extract first_name and last_name from full_name if present
+                full_name = params.get("full_name", "")
+                first_name = None
+                last_name = None
+                if full_name:
+                    parts = full_name.split(" ", 1)
+                    first_name = parts[0]
+                    last_name = parts[1] if len(parts) > 1 else None
+
+                resolved_id = resolve_prospect_id(
+                    prospects_api,
+                    first_name=first_name,
+                    last_name=last_name,
+                    linkedin=params.get("linkedin"),
+                    company_name=params.get("company_name"),
+                    min_confidence=min_confidence
+                )
+                prospect_ids.append(resolved_id)
+            except (MatchError, LowConfidenceError) as e:
+                match_failures.append((i, params, str(e)))
+
+        if match_failures:
+            click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
+            for idx, params, error in match_failures[:5]:
+                click.echo(f"  {idx}: {params} - {error}", err=True)
+            if len(match_failures) > 5:
+                click.echo(f"  ... and {len(match_failures) - 5} more", err=True)
+
+        if not prospect_ids:
+            raise click.UsageError("No prospects could be matched")
     else:
-        raise click.UsageError("Provide --ids or --file")
+        raise click.UsageError("Provide --ids, --file, or --match-file")
 
     if len(prospect_ids) > 50:
         raise click.UsageError("Maximum 50 prospects per bulk request")

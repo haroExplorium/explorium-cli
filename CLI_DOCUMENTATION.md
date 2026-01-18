@@ -115,14 +115,51 @@ explorium businesses search --country us --size "51-200" --page 1 --page-size 50
 
 ### `explorium businesses enrich`
 
-Enrich a single business by ID (firmographics data).
+Enrich a single business with firmographics data. You can provide either a business ID directly, or use match parameters (name, domain, linkedin) to automatically resolve the ID.
 
+**Using ID directly:**
 ```bash
-# Enrich Salesforce
+# Enrich Salesforce by ID
 explorium businesses enrich --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
 
-# Enrich Colgate-Palmolive
+# Enrich Colgate-Palmolive by ID
 explorium businesses enrich --id 1006ff12c465532f8c574aeaa4461b16
+```
+
+**Using match parameters (enrich without knowing the ID):**
+```bash
+# Enrich Salesforce by company name
+explorium businesses enrich --name "Salesforce"
+
+# Enrich Google by domain
+explorium businesses enrich --domain "google.com"
+
+# Enrich Colgate-Palmolive by LinkedIn URL
+explorium businesses enrich --linkedin "https://linkedin.com/company/colaboratoolive"
+
+# Combine match parameters for better accuracy
+explorium businesses enrich --name "Starbucks" --domain "starbucks.com"
+```
+
+**Match confidence threshold:**
+
+By default, the CLI requires 80% match confidence. You can adjust this:
+```bash
+# Accept lower confidence matches (useful for less common companies)
+explorium businesses enrich --name "Acme Corp" --min-confidence 0.5
+
+# Require higher confidence (more strict matching)
+explorium businesses enrich --name "Apple" --min-confidence 0.95
+```
+
+When a match confidence is below the threshold, the CLI shows suggestions:
+```
+Error: Best match confidence (0.65) is below threshold (0.80). Found 3 potential match(es).
+
+Suggestions (try --min-confidence to lower threshold):
+  1. Acme Corporation (ID: abc123..., confidence: 0.65)
+  2. Acme Industries (ID: def456..., confidence: 0.52)
+  3. Acme LLC (ID: ghi789..., confidence: 0.48)
 ```
 
 ### Business Enrichment Types
@@ -148,69 +185,122 @@ The CLI supports multiple enrichment types for businesses:
 | `enrich-hierarchy` | Company hierarchy (parent/subsidiaries) |
 | `enrich-intent` | Bombora intent signals |
 
+**Using ID:**
 ```bash
-# Tech stack
+# Tech stack for Salesforce
 explorium businesses enrich-tech --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
 
-# Financial metrics
-explorium businesses enrich-financial --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# Financial metrics for Colgate-Palmolive
+explorium businesses enrich-financial --id 1006ff12c465532f8c574aeaa4461b16
 
-# Funding and acquisitions
-explorium businesses enrich-funding --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# Funding and acquisitions for Google
+explorium businesses enrich-funding --id c71497b026909c74b4ab3a4fbfcd122a
+```
 
-# Workforce trends
-explorium businesses enrich-workforce --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+**Using match parameters (no ID required):**
+```bash
+# Tech stack - what technologies does Salesforce use?
+explorium businesses enrich-tech --name "Salesforce"
+explorium businesses enrich-tech --domain "salesforce.com"
 
-# Website traffic
-explorium businesses enrich-traffic --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# Financial metrics for Microsoft
+explorium businesses enrich-financial --name "Microsoft" --domain "microsoft.com"
 
-# LinkedIn posts
-explorium businesses enrich-social --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# Funding and acquisitions for Stripe
+explorium businesses enrich-funding --name "Stripe"
 
-# Employee ratings
-explorium businesses enrich-ratings --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# Workforce trends for Amazon
+explorium businesses enrich-workforce --domain "amazon.com"
 
-# Website keyword search
-explorium businesses enrich-keywords --id 39ae2ed11b14a4ccb41d35e9d1ba5d11 --keywords "AI,cloud,automation"
+# Website traffic for Netflix
+explorium businesses enrich-traffic --name "Netflix"
 
-# Business challenges (public companies only)
-explorium businesses enrich-challenges --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# LinkedIn posts for HubSpot
+explorium businesses enrich-social --name "HubSpot"
 
-# Competitive landscape (public companies only)
-explorium businesses enrich-competitive --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# Employee ratings for Glassdoor
+explorium businesses enrich-ratings --domain "glassdoor.com"
 
-# Strategic insights (public companies only)
-explorium businesses enrich-strategic --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# Website keyword search - does Apple mention "AI" on their website?
+explorium businesses enrich-keywords --name "Apple" --keywords "AI,machine learning,privacy"
 
-# Website changes
-explorium businesses enrich-website-changes --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# Business challenges for Tesla (public company, from 10-K filings)
+explorium businesses enrich-challenges --name "Tesla"
 
-# Webstack
-explorium businesses enrich-webstack --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# Competitive landscape for Coca-Cola (public company)
+explorium businesses enrich-competitive --name "Coca-Cola"
 
-# Company hierarchy (parent/subsidiaries)
-explorium businesses enrich-hierarchy --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# Strategic insights for JPMorgan (public company)
+explorium businesses enrich-strategic --name "JPMorgan Chase"
 
-# Bombora intent
-explorium businesses enrich-intent --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+# Website changes tracking for Shopify
+explorium businesses enrich-website-changes --domain "shopify.com"
+
+# Webstack - what does Airbnb's website run on?
+explorium businesses enrich-webstack --name "Airbnb"
+
+# Company hierarchy for Johnson & Johnson
+explorium businesses enrich-hierarchy --name "Johnson & Johnson"
+
+# Bombora intent signals for Zoom
+explorium businesses enrich-intent --name "Zoom Video Communications"
 ```
 
 ### `explorium businesses bulk-enrich`
 
 Bulk enrich multiple businesses (up to 50).
 
+**Using IDs:**
 ```bash
-# Enrich Salesforce, Google, and Colgate Palmolive
+# Enrich Salesforce, Google, and Colgate Palmolive by IDs
 explorium businesses bulk-enrich --ids "39ae2ed11b14a4ccb41d35e9d1ba5d11,c71497b026909c74b4ab3a4fbfcd122a,1006ff12c465532f8c574aeaa4461b16"
+
+# From a file with IDs (one per line)
+explorium businesses bulk-enrich --file business_ids.txt
+```
+
+**Using match file (no IDs required):**
+
+Create a JSON file `companies_to_enrich.json`:
+```json
+[
+  {"name": "Salesforce", "domain": "salesforce.com"},
+  {"name": "HubSpot", "domain": "hubspot.com"},
+  {"name": "Zendesk"},
+  {"domain": "freshworks.com"},
+  {"linkedin_url": "https://linkedin.com/company/intercom"}
+]
+```
+
+Then run:
+```bash
+# Bulk enrich by resolving company names/domains to IDs automatically
+explorium businesses bulk-enrich --match-file companies_to_enrich.json
+
+# With lower confidence threshold
+explorium businesses bulk-enrich --match-file companies_to_enrich.json --min-confidence 0.6
 ```
 
 ### `explorium businesses lookalike`
 
 Find similar companies.
 
+**Using ID:**
 ```bash
-# Find companies similar to Salesforce
+# Find companies similar to Salesforce by ID
 explorium businesses lookalike --id 39ae2ed11b14a4ccb41d35e9d1ba5d11
+```
+
+**Using match parameters:**
+```bash
+# Find companies similar to Salesforce (without knowing the ID)
+explorium businesses lookalike --name "Salesforce"
+
+# Find companies similar to Stripe
+explorium businesses lookalike --domain "stripe.com"
+
+# Find companies similar to Notion
+explorium businesses lookalike --name "Notion" --domain "notion.so"
 ```
 
 ### `explorium businesses autocomplete`
@@ -275,26 +365,77 @@ explorium prospects search --business-id 1006ff12c465532f8c574aeaa4461b16 --job-
 
 ### `explorium prospects enrich`
 
-Enrich prospect data.
+Enrich prospect data. You can provide either a prospect ID directly, or use match parameters (name, linkedin, company) to automatically resolve the ID.
 
+**Using ID:**
 ```bash
-# Enrich contacts for Brigitta Ruha (email, phone)
+# Enrich contacts for Brigitta Ruha by ID (email, phone)
 explorium prospects enrich contacts --id a0997d3905e02c919f1f7092ad4947c8e0cddade
 
-# Enrich LinkedIn posts for Sally Massey
+# Enrich LinkedIn posts for Sally Massey by ID
 explorium prospects enrich social --id 8112e31c5e3a4fc93d4413abeee778b5d4e5c99d
 
-# Enrich professional profile
+# Enrich professional profile by ID
 explorium prospects enrich profile --id a0997d3905e02c919f1f7092ad4947c8e0cddade
 ```
+
+**Using match parameters (enrich without knowing the ID):**
+```bash
+# Get contact info for Satya Nadella at Microsoft
+explorium prospects enrich contacts --first-name "Satya" --last-name "Nadella" --company-name "Microsoft"
+
+# Get contact info by LinkedIn URL
+explorium prospects enrich contacts --linkedin "https://linkedin.com/in/satyanadella"
+
+# Get LinkedIn posts for Marc Benioff
+explorium prospects enrich social --first-name "Marc" --last-name "Benioff" --company-name "Salesforce"
+
+# Get professional profile for Sundar Pichai
+explorium prospects enrich profile --first-name "Sundar" --last-name "Pichai" --company-name "Google"
+
+# With lower confidence threshold for less prominent prospects
+explorium prospects enrich contacts --first-name "John" --last-name "Smith" --company-name "Acme Corp" --min-confidence 0.6
+```
+
+**Available enrichment types:**
+| Command | Description |
+|---------|-------------|
+| `contacts` | Email addresses and phone numbers |
+| `social` | LinkedIn posts and activity |
+| `profile` | Full professional profile (experience, education, skills) |
 
 ### `explorium prospects bulk-enrich`
 
 Bulk enrich multiple prospects with contact information (up to 50).
 
+**Using IDs:**
 ```bash
-# Bulk enrich Brigitta Ruha and Sally Massey
+# Bulk enrich by prospect IDs
 explorium prospects bulk-enrich --ids "a0997d3905e02c919f1f7092ad4947c8e0cddade,8112e31c5e3a4fc93d4413abeee778b5d4e5c99d"
+
+# From a file with IDs (one per line)
+explorium prospects bulk-enrich --file prospect_ids.txt
+```
+
+**Using match file (no IDs required):**
+
+Create a JSON file `prospects_to_enrich.json`:
+```json
+[
+  {"full_name": "Satya Nadella", "company_name": "Microsoft"},
+  {"full_name": "Marc Benioff", "company_name": "Salesforce"},
+  {"linkedin": "https://linkedin.com/in/sundarpichai"},
+  {"full_name": "Tim Cook", "company_name": "Apple"}
+]
+```
+
+Then run:
+```bash
+# Bulk enrich by resolving names/linkedin to IDs automatically
+explorium prospects bulk-enrich --match-file prospects_to_enrich.json
+
+# With lower confidence threshold
+explorium prospects bulk-enrich --match-file prospects_to_enrich.json --min-confidence 0.6
 ```
 
 ### Prospect Events
@@ -395,3 +536,47 @@ explorium -c /path/to/config.yaml businesses search --country us
 | `prospects bulk-enrich` | Bulk enrich prospects |
 | `prospects events list/enroll/enrollments` | Event operations |
 | `webhooks create/get/update/delete` | Webhook management (partner access) |
+
+---
+
+## Match-Based Enrichment
+
+All enrichment commands support **match-based enrichment** - you can enrich without knowing the ID by providing match parameters.
+
+### Business Match Parameters
+
+| Option | Description |
+|--------|-------------|
+| `--id` | Direct business ID (skips matching) |
+| `--name` | Company name for matching |
+| `--domain` | Company domain/website for matching |
+| `--linkedin` | LinkedIn company URL for matching |
+| `--min-confidence` | Minimum match confidence (0-1, default: 0.8) |
+
+### Prospect Match Parameters
+
+| Option | Description |
+|--------|-------------|
+| `--id` | Direct prospect ID (skips matching) |
+| `--first-name` | First name for matching |
+| `--last-name` | Last name for matching |
+| `--linkedin` | LinkedIn profile URL for matching |
+| `--company-name` | Company name for matching |
+| `--min-confidence` | Minimum match confidence (0-1, default: 0.8) |
+
+### Quick Examples
+
+```bash
+# Business enrichment without ID
+explorium businesses enrich --name "Salesforce"
+explorium businesses enrich-tech --domain "google.com"
+explorium businesses lookalike --name "Stripe"
+
+# Prospect enrichment without ID
+explorium prospects enrich contacts --first-name "Satya" --last-name "Nadella" --company-name "Microsoft"
+explorium prospects enrich profile --linkedin "https://linkedin.com/in/marcbenioff"
+
+# Bulk enrichment with match file
+explorium businesses bulk-enrich --match-file companies.json
+explorium prospects bulk-enrich --match-file prospects.json
+```
