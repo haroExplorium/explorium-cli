@@ -132,16 +132,19 @@ def resolve_business_id(
     # Call match API
     result = api.match([match_params])
 
-    # Check for matches
-    data = result.get("data", [])
-    if not data:
+    # Check for matches - API returns "matched_businesses" or "data"
+    matches = result.get("matched_businesses") or result.get("data", [])
+    if not matches:
         params_str = ", ".join(f"{k}={v}" for k, v in match_params.items())
         raise MatchError(f"No business matches found for: {params_str}")
 
-    # Check confidence
-    best_match = data[0]
-    if best_match.get("match_confidence", 0) < min_confidence:
-        raise LowConfidenceError(data, min_confidence)
+    # Get best match
+    best_match = matches[0]
+
+    # Check confidence if provided (API may not return it for all matches)
+    confidence = best_match.get("match_confidence")
+    if confidence is not None and confidence < min_confidence:
+        raise LowConfidenceError(matches, min_confidence)
 
     return best_match["business_id"]
 
@@ -196,16 +199,19 @@ def resolve_prospect_id(
     # Call match API
     result = api.match([match_params])
 
-    # Check for matches
-    data = result.get("data", [])
-    if not data:
+    # Check for matches - API returns "matched_prospects" or "data"
+    matches = result.get("matched_prospects") or result.get("data", [])
+    if not matches:
         params_str = ", ".join(f"{k}={v}" for k, v in match_params.items())
         raise MatchError(f"No prospect matches found for: {params_str}")
 
-    # Check confidence
-    best_match = data[0]
-    if best_match.get("match_confidence", 0) < min_confidence:
-        raise LowConfidenceError(data, min_confidence)
+    # Get best match
+    best_match = matches[0]
+
+    # Check confidence if provided (API may not return it for all matches)
+    confidence = best_match.get("match_confidence")
+    if confidence is not None and confidence < min_confidence:
+        raise LowConfidenceError(matches, min_confidence)
 
     return best_match["prospect_id"]
 
