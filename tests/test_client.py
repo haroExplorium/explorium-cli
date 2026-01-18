@@ -380,3 +380,221 @@ class TestExploriumAPIRetry:
             result = api.get("/test")
             assert result == {"status": "success"}
             assert mock_req.call_count == 2
+
+    def test_retry_on_502_bad_gateway(self):
+        """Test that 502 Bad Gateway errors trigger retries."""
+        api = ExploriumAPI(api_key="test_key", max_retries=1, retry_delay=0.01)
+
+        mock_response_fail = MagicMock()
+        mock_response_fail.status_code = 502
+        mock_response_fail.json.return_value = {"error": "Bad Gateway"}
+        http_error = requests.exceptions.HTTPError(response=mock_response_fail)
+        mock_response_fail.raise_for_status.side_effect = http_error
+
+        mock_response_success = MagicMock()
+        mock_response_success.json.return_value = {"status": "success"}
+        mock_response_success.raise_for_status.return_value = None
+
+        with patch.object(
+            api.session,
+            "request",
+            side_effect=[mock_response_fail, mock_response_success]
+        ) as mock_req:
+            result = api.get("/test")
+            assert result == {"status": "success"}
+            assert mock_req.call_count == 2
+
+    def test_retry_on_504_gateway_timeout(self):
+        """Test that 504 Gateway Timeout errors trigger retries."""
+        api = ExploriumAPI(api_key="test_key", max_retries=1, retry_delay=0.01)
+
+        mock_response_fail = MagicMock()
+        mock_response_fail.status_code = 504
+        mock_response_fail.json.return_value = {"error": "Gateway Timeout"}
+        http_error = requests.exceptions.HTTPError(response=mock_response_fail)
+        mock_response_fail.raise_for_status.side_effect = http_error
+
+        mock_response_success = MagicMock()
+        mock_response_success.json.return_value = {"status": "success"}
+        mock_response_success.raise_for_status.return_value = None
+
+        with patch.object(
+            api.session,
+            "request",
+            side_effect=[mock_response_fail, mock_response_success]
+        ) as mock_req:
+            result = api.get("/test")
+            assert result == {"status": "success"}
+            assert mock_req.call_count == 2
+
+    def test_no_retry_on_401_unauthorized(self):
+        """Test that 401 Unauthorized errors do not trigger retries."""
+        api = ExploriumAPI(api_key="test_key", max_retries=2, retry_delay=0.01)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.json.return_value = {"error": "Unauthorized"}
+        http_error = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = http_error
+
+        with patch.object(api.session, "request", return_value=mock_response) as mock_req:
+            with pytest.raises(APIError) as exc_info:
+                api.get("/test")
+            assert exc_info.value.status_code == 401
+            assert mock_req.call_count == 1
+
+    def test_no_retry_on_403_forbidden(self):
+        """Test that 403 Forbidden errors do not trigger retries."""
+        api = ExploriumAPI(api_key="test_key", max_retries=2, retry_delay=0.01)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.json.return_value = {"error": "Forbidden"}
+        http_error = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = http_error
+
+        with patch.object(api.session, "request", return_value=mock_response) as mock_req:
+            with pytest.raises(APIError) as exc_info:
+                api.get("/test")
+            assert exc_info.value.status_code == 403
+            assert mock_req.call_count == 1
+
+    def test_no_retry_on_404_not_found(self):
+        """Test that 404 Not Found errors do not trigger retries."""
+        api = ExploriumAPI(api_key="test_key", max_retries=2, retry_delay=0.01)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.json.return_value = {"error": "Not found"}
+        http_error = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = http_error
+
+        with patch.object(api.session, "request", return_value=mock_response) as mock_req:
+            with pytest.raises(APIError) as exc_info:
+                api.get("/test")
+            assert exc_info.value.status_code == 404
+            assert mock_req.call_count == 1
+
+    def test_retry_post_request(self):
+        """Test that POST requests also retry on server errors."""
+        api = ExploriumAPI(api_key="test_key", max_retries=1, retry_delay=0.01)
+
+        mock_response_fail = MagicMock()
+        mock_response_fail.status_code = 500
+        mock_response_fail.json.return_value = {"error": "Server error"}
+        http_error = requests.exceptions.HTTPError(response=mock_response_fail)
+        mock_response_fail.raise_for_status.side_effect = http_error
+
+        mock_response_success = MagicMock()
+        mock_response_success.json.return_value = {"status": "created"}
+        mock_response_success.raise_for_status.return_value = None
+
+        with patch.object(
+            api.session,
+            "request",
+            side_effect=[mock_response_fail, mock_response_success]
+        ) as mock_req:
+            result = api.post("/businesses/match", json={"name": "Test"})
+            assert result == {"status": "created"}
+            assert mock_req.call_count == 2
+            # Verify POST parameters are preserved on retry
+            for call in mock_req.call_args_list:
+                assert call[0][0] == "POST"
+                assert call[1]["json"] == {"name": "Test"}
+
+    def test_retry_preserves_request_parameters(self):
+        """Test that retry preserves all request parameters."""
+        api = ExploriumAPI(api_key="test_key", max_retries=1, retry_delay=0.01)
+
+        mock_response_fail = MagicMock()
+        mock_response_fail.status_code = 503
+        mock_response_fail.json.return_value = {"error": "Service unavailable"}
+        http_error = requests.exceptions.HTTPError(response=mock_response_fail)
+        mock_response_fail.raise_for_status.side_effect = http_error
+
+        mock_response_success = MagicMock()
+        mock_response_success.json.return_value = {"data": []}
+        mock_response_success.raise_for_status.return_value = None
+
+        with patch.object(
+            api.session,
+            "request",
+            side_effect=[mock_response_fail, mock_response_success]
+        ) as mock_req:
+            result = api.get("/businesses/autocomplete", params={"query": "test"})
+            assert result == {"data": []}
+            assert mock_req.call_count == 2
+            # Verify params are preserved on retry
+            for call in mock_req.call_args_list:
+                assert call[1]["params"] == {"query": "test"}
+
+    @patch('time.sleep')
+    def test_exponential_backoff(self, mock_sleep):
+        """Test that retry uses exponential backoff."""
+        api = ExploriumAPI(
+            api_key="test_key",
+            max_retries=3,
+            retry_delay=1.0,
+            retry_backoff=2.0
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_response.json.return_value = {"error": "Service unavailable"}
+        http_error = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = http_error
+
+        with patch.object(api.session, "request", return_value=mock_response):
+            with pytest.raises(APIError):
+                api.get("/test")
+
+        # Verify exponential backoff delays: 1.0, 2.0, 4.0
+        assert mock_sleep.call_count == 3
+        sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
+        assert sleep_calls[0] == 1.0
+        assert sleep_calls[1] == 2.0
+        assert sleep_calls[2] == 4.0
+
+    def test_retry_with_zero_max_retries(self):
+        """Test that max_retries=0 means no retries."""
+        api = ExploriumAPI(api_key="test_key", max_retries=0, retry_delay=0.01)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.json.return_value = {"error": "Server error"}
+        http_error = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = http_error
+
+        with patch.object(api.session, "request", return_value=mock_response) as mock_req:
+            with pytest.raises(APIError) as exc_info:
+                api.get("/test")
+            assert exc_info.value.status_code == 500
+            assert mock_req.call_count == 1  # Only initial request, no retries
+
+    def test_retry_multiple_failures_then_success(self):
+        """Test retry succeeds after multiple failures."""
+        api = ExploriumAPI(api_key="test_key", max_retries=3, retry_delay=0.01)
+
+        mock_response_fail = MagicMock()
+        mock_response_fail.status_code = 503
+        mock_response_fail.json.return_value = {"error": "Service unavailable"}
+        http_error = requests.exceptions.HTTPError(response=mock_response_fail)
+        mock_response_fail.raise_for_status.side_effect = http_error
+
+        mock_response_success = MagicMock()
+        mock_response_success.json.return_value = {"status": "success"}
+        mock_response_success.raise_for_status.return_value = None
+
+        with patch.object(
+            api.session,
+            "request",
+            side_effect=[
+                mock_response_fail,
+                mock_response_fail,
+                mock_response_fail,
+                mock_response_success
+            ]
+        ) as mock_req:
+            result = api.get("/test")
+            assert result == {"status": "success"}
+            assert mock_req.call_count == 4  # Initial + 3 retries
