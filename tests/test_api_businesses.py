@@ -85,13 +85,13 @@ class TestBusinessesSearch:
     def test_search_with_pagination(self, api: BusinessesAPI):
         """Test search with pagination."""
         filters = {"country": ["us"]}
-        api.search(filters, size=50, page=2)
+        api.search(filters, size=500, page_size=50, page=2)
 
         api.client.post.assert_called_once_with(
             "/businesses",
             json={
                 "mode": "full",
-                "size": 50,
+                "size": 500,
                 "page_size": 50,
                 "page": 2,
                 "filters": filters

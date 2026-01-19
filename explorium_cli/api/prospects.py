@@ -37,6 +37,7 @@ class ProspectsAPI:
         filters: dict,
         mode: str = "full",
         size: int = 100,
+        page_size: int = 100,
         page: int = 1
     ) -> dict:
         """
@@ -45,7 +46,8 @@ class ProspectsAPI:
         Args:
             filters: Search filters (business_id, job_level, department, etc.).
             mode: Search mode ('full' or 'preview').
-            size: Number of results per page.
+            size: Total number of results to return (max 60,000).
+            page_size: Number of results per page (max 500).
             page: Page number.
 
         Returns:
@@ -56,7 +58,7 @@ class ProspectsAPI:
             json={
                 "mode": mode,
                 "size": size,
-                "page_size": size,
+                "page_size": page_size,
                 "page": page,
                 "filters": filters
             }

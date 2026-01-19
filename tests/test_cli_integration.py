@@ -765,6 +765,184 @@ class TestProspectMatchBasedEnrichment:
             mock_instance.enrich_profile.assert_called_once_with("profile_prospect")
 
 
+class TestBusinessSearchPagination:
+    """Tests for business search with --total option (auto-pagination)."""
+
+    def test_businesses_search_with_total(self, runner: CliRunner, config_with_key: Path):
+        """Test businesses search with --total for auto-pagination."""
+        with patch("explorium_cli.commands.businesses.BusinessesAPI") as MockAPI:
+            mock_instance = MagicMock()
+            # Simulate 2 pages of results
+            mock_instance.search.side_effect = [
+                {
+                    "status": "success",
+                    "data": [{"business_id": f"id_{i}"} for i in range(100)],
+                    "meta": {"page": 1, "size": 100, "total": 150}
+                },
+                {
+                    "status": "success",
+                    "data": [{"business_id": f"id_{i}"} for i in range(100, 150)],
+                    "meta": {"page": 2, "size": 50, "total": 150}
+                }
+            ]
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                ["--config", str(config_with_key), "businesses", "search", "--country", "us", "--total", "150"]
+            )
+
+            assert result.exit_code == 0
+            assert mock_instance.search.call_count == 2
+
+    def test_businesses_search_total_negative_error(self, runner: CliRunner, config_with_key: Path):
+        """Test that negative --total value raises error."""
+        result = runner.invoke(
+            cli,
+            ["--config", str(config_with_key), "businesses", "search", "--total", "-10"]
+        )
+
+        assert result.exit_code != 0
+        full_output = result.output + (result.stderr or "")
+        assert "positive" in full_output.lower() or result.exit_code != 0
+
+    def test_businesses_search_total_with_custom_page_size(self, runner: CliRunner, config_with_key: Path):
+        """Test businesses search with --total and custom --page-size."""
+        with patch("explorium_cli.commands.businesses.BusinessesAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.side_effect = [
+                {
+                    "status": "success",
+                    "data": [{"business_id": f"id_{i}"} for i in range(50)],
+                    "meta": {"page": 1, "size": 50, "total": 100}
+                },
+                {
+                    "status": "success",
+                    "data": [{"business_id": f"id_{i}"} for i in range(50, 100)],
+                    "meta": {"page": 2, "size": 50, "total": 100}
+                }
+            ]
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "businesses", "search",
+                    "--country", "us",
+                    "--total", "100",
+                    "--page-size", "50"
+                ]
+            )
+
+            assert result.exit_code == 0
+            assert mock_instance.search.call_count == 2
+
+    def test_businesses_search_without_total_uses_single_page(self, runner: CliRunner, config_with_key: Path):
+        """Test backwards compatibility - search without --total uses single page."""
+        with patch("explorium_cli.commands.businesses.BusinessesAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.return_value = {"status": "success", "data": []}
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                ["--config", str(config_with_key), "businesses", "search", "--country", "us", "--page", "2"]
+            )
+
+            mock_instance.search.assert_called_once()
+            call_kwargs = mock_instance.search.call_args[1]
+            assert call_kwargs["page"] == 2
+
+    def test_businesses_search_total_stops_when_no_more_data(self, runner: CliRunner, config_with_key: Path):
+        """Test that pagination stops when API returns fewer results than available."""
+        with patch("explorium_cli.commands.businesses.BusinessesAPI") as MockAPI:
+            mock_instance = MagicMock()
+            # API only has 30 results, but we request 100
+            mock_instance.search.return_value = {
+                "status": "success",
+                "data": [{"business_id": f"id_{i}"} for i in range(30)],
+                "meta": {"page": 1, "size": 100, "total": 30}
+            }
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                ["--config", str(config_with_key), "businesses", "search", "--country", "us", "--total", "100"]
+            )
+
+            assert result.exit_code == 0
+            # Should only make 1 API call since total available is 30
+            assert mock_instance.search.call_count == 1
+
+
+class TestProspectSearchPagination:
+    """Tests for prospect search with --total option (auto-pagination)."""
+
+    def test_prospects_search_with_total(self, runner: CliRunner, config_with_key: Path):
+        """Test prospects search with --total for auto-pagination."""
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.side_effect = [
+                {
+                    "status": "success",
+                    "data": [{"prospect_id": f"p_{i}"} for i in range(100)],
+                    "meta": {"page": 1, "size": 100, "total": 200}
+                },
+                {
+                    "status": "success",
+                    "data": [{"prospect_id": f"p_{i}"} for i in range(100, 200)],
+                    "meta": {"page": 2, "size": 100, "total": 200}
+                }
+            ]
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "search",
+                    "--business-id", "abc123",
+                    "--total", "200"
+                ]
+            )
+
+            assert result.exit_code == 0
+            assert mock_instance.search.call_count == 2
+
+    def test_prospects_search_total_negative_error(self, runner: CliRunner, config_with_key: Path):
+        """Test that negative --total value raises error."""
+        result = runner.invoke(
+            cli,
+            ["--config", str(config_with_key), "prospects", "search", "--total", "0"]
+        )
+
+        assert result.exit_code != 0
+
+    def test_prospects_search_without_total_uses_single_page(self, runner: CliRunner, config_with_key: Path):
+        """Test backwards compatibility - search without --total uses single page."""
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.return_value = {"status": "success", "data": []}
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "search",
+                    "--business-id", "abc123",
+                    "--page", "3",
+                    "--page-size", "25"
+                ]
+            )
+
+            mock_instance.search.assert_called_once()
+            call_kwargs = mock_instance.search.call_args[1]
+            assert call_kwargs["page"] == 3
+            assert call_kwargs["size"] == 25
+
+
 class TestErrorHandling:
     """Tests for error handling."""
 

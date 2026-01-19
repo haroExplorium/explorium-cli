@@ -7,7 +7,8 @@ import click
 
 from explorium_cli.api.prospects import ProspectsAPI
 from explorium_cli.utils import get_api, handle_api_call
-from explorium_cli.formatters import output_error
+from explorium_cli.formatters import output, output_error
+from explorium_cli.pagination import paginated_fetch
 from explorium_cli.match_utils import (
     prospect_match_options,
     resolve_prospect_id,
@@ -133,7 +134,8 @@ def match(
 @click.option("--experience-max", type=int, help="Max total experience (months)")
 @click.option("--role-tenure-min", type=int, help="Min current role tenure (months)")
 @click.option("--role-tenure-max", type=int, help="Max current role tenure (months)")
-@click.option("--page", type=int, default=1, help="Page number")
+@click.option("--total", type=int, help="Total records to collect (auto-paginate)")
+@click.option("--page", type=int, default=1, help="Page number (ignored if --total)")
 @click.option("--page-size", type=int, default=100, help="Results per page")
 @click.pass_context
 def search(
@@ -149,6 +151,7 @@ def search(
     experience_max: Optional[int],
     role_tenure_min: Optional[int],
     role_tenure_max: Optional[int],
+    total: Optional[int],
     page: int,
     page_size: int
 ) -> None:
@@ -180,13 +183,30 @@ def search(
     if role_tenure_max is not None:
         filters["role_tenure_max"] = {"value": role_tenure_max}
 
-    handle_api_call(
-        ctx,
-        prospects_api.search,
-        filters,
-        size=page_size,
-        page=page
-    )
+    if total:
+        # Auto-paginate mode
+        if total <= 0:
+            raise click.UsageError("Total must be positive")
+        try:
+            result = paginated_fetch(
+                prospects_api.search,
+                total=total,
+                page_size=page_size,
+                filters=filters
+            )
+            output(result, ctx.obj["output"])
+        except Exception as e:
+            output_error(str(e))
+            raise click.Abort()
+    else:
+        # Single page mode (existing behavior)
+        handle_api_call(
+            ctx,
+            prospects_api.search,
+            filters,
+            size=page_size,
+            page=page
+        )
 
 
 # Enrich subgroup

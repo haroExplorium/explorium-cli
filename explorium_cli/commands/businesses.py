@@ -7,7 +7,8 @@ import click
 
 from explorium_cli.api.businesses import BusinessesAPI
 from explorium_cli.utils import get_api, handle_api_call
-from explorium_cli.formatters import output_error
+from explorium_cli.formatters import output, output_error
+from explorium_cli.pagination import paginated_fetch
 from explorium_cli.match_utils import (
     business_match_options,
     resolve_business_id,
@@ -116,7 +117,8 @@ def match(
 @click.option("--tech", help="Technologies (comma-separated)")
 @click.option("--events", help="Event types (comma-separated)")
 @click.option("--events-days", type=int, default=45, help="Days for event recency")
-@click.option("--page", type=int, default=1, help="Page number")
+@click.option("--total", type=int, help="Total records to collect (auto-paginate)")
+@click.option("--page", type=int, default=1, help="Page number (ignored if --total)")
 @click.option("--page-size", type=int, default=100, help="Results per page")
 @click.pass_context
 def search(
@@ -128,6 +130,7 @@ def search(
     tech: Optional[str],
     events: Optional[str],
     events_days: int,
+    total: Optional[int],
     page: int,
     page_size: int
 ) -> None:
@@ -152,13 +155,30 @@ def search(
             "last_occurrence": events_days
         }
 
-    handle_api_call(
-        ctx,
-        businesses_api.search,
-        filters,
-        size=page_size,
-        page=page
-    )
+    if total:
+        # Auto-paginate mode
+        if total <= 0:
+            raise click.UsageError("Total must be positive")
+        try:
+            result = paginated_fetch(
+                businesses_api.search,
+                total=total,
+                page_size=page_size,
+                filters=filters
+            )
+            output(result, ctx.obj["output"])
+        except Exception as e:
+            output_error(str(e))
+            raise click.Abort()
+    else:
+        # Single page mode (existing behavior)
+        handle_api_call(
+            ctx,
+            businesses_api.search,
+            filters,
+            size=page_size,
+            page=page
+        )
 
 
 @businesses.command()
