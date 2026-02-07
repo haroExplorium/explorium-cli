@@ -6,9 +6,11 @@ from typing import Optional
 import click
 
 from explorium_cli.api.businesses import BusinessesAPI
-from explorium_cli.utils import get_api, handle_api_call
+from explorium_cli.utils import get_api, handle_api_call, output_options
 from explorium_cli.formatters import output, output_error
+from explorium_cli.api.client import APIError
 from explorium_cli.pagination import paginated_fetch
+from explorium_cli.batching import parse_csv_ids, parse_csv_business_match_params, batched_enrich, batched_match
 from explorium_cli.match_utils import (
     business_match_options,
     resolve_business_id,
@@ -65,6 +67,18 @@ def _resolve_business_id_with_errors(
         raise  # Never reached, but makes type checker happy
 
 
+def _print_match_summary(result: dict, total_input: int) -> None:
+    """Print match statistics to stderr."""
+    matches = result.get("matched_businesses") or result.get("data", [])
+    if isinstance(matches, list):
+        matched = len(matches)
+        failed = total_input - matched
+        msg = f"Matched: {matched}/{total_input}"
+        if failed > 0:
+            msg += f", Failed: {failed}"
+        click.echo(msg, err=True)
+
+
 @click.group()
 @click.pass_context
 def businesses(ctx: click.Context) -> None:
@@ -79,22 +93,30 @@ def businesses(ctx: click.Context) -> None:
 @click.option(
     "--file", "-f",
     type=click.File("r"),
-    help="JSON file with businesses to match"
+    help="JSON or CSV file with businesses to match"
 )
+@click.option("--summary", is_flag=True, help="Print match statistics to stderr")
+@click.option("--ids-only", is_flag=True, help="Output only matched business IDs, one per line")
+@output_options
 @click.pass_context
 def match(
     ctx: click.Context,
     name: Optional[str],
     domain: Optional[str],
     linkedin: Optional[str],
-    file
+    file,
+    summary: bool,
+    ids_only: bool,
 ) -> None:
     """Match businesses to get unique business IDs."""
     api = get_api(ctx)
     businesses_api = BusinessesAPI(api)
 
     if file:
-        businesses_to_match = json.load(file)
+        if hasattr(file, 'name') and file.name.endswith('.csv'):
+            businesses_to_match = parse_csv_business_match_params(file)
+        else:
+            businesses_to_match = json.load(file)
     elif name or domain or linkedin:
         businesses_to_match = [{
             "name": name,
@@ -106,7 +128,36 @@ def match(
             "Provide --name/--domain/--linkedin or --file"
         )
 
-    handle_api_call(ctx, businesses_api.match, businesses_to_match)
+    try:
+        result = batched_match(
+            businesses_api.match,
+            businesses_to_match,
+            result_key="matched_businesses",
+            entity_name="businesses",
+        )
+    except APIError as e:
+        output_error(e.message, e.response)
+        raise click.Abort()
+
+    output_format = ctx.obj["output"]
+
+    if ids_only:
+        records = result.get("matched_businesses") or result.get("data", [])
+        if isinstance(records, list):
+            for record in records:
+                bid = record.get("business_id", "")
+                if bid:
+                    click.echo(bid)
+    else:
+        output_data = result
+        if output_format in ("csv", "table"):
+            records = result.get("matched_businesses") or result.get("data", [])
+            if isinstance(records, list):
+                output_data = records
+        output(output_data, output_format, file_path=ctx.obj.get("output_file"))
+
+    if summary and result:
+        _print_match_summary(result, len(businesses_to_match))
 
 
 @businesses.command()
@@ -120,6 +171,7 @@ def match(
 @click.option("--total", type=int, help="Total records to collect (auto-paginate)")
 @click.option("--page", type=int, default=1, help="Page number (ignored if --total)")
 @click.option("--page-size", type=int, default=100, help="Results per page")
+@output_options
 @click.pass_context
 def search(
     ctx: click.Context,
@@ -166,7 +218,7 @@ def search(
                 page_size=page_size,
                 filters=filters
             )
-            output(result, ctx.obj["output"])
+            output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
         except Exception as e:
             output_error(str(e))
             raise click.Abort()
@@ -183,6 +235,7 @@ def search(
 
 @businesses.command()
 @business_match_options
+@output_options
 @click.pass_context
 def enrich(
     ctx: click.Context,
@@ -204,6 +257,7 @@ def enrich(
 
 @businesses.command("enrich-tech")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_tech(
     ctx: click.Context,
@@ -225,6 +279,7 @@ def enrich_tech(
 
 @businesses.command("enrich-financial")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_financial(
     ctx: click.Context,
@@ -246,6 +301,7 @@ def enrich_financial(
 
 @businesses.command("enrich-funding")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_funding(
     ctx: click.Context,
@@ -267,6 +323,7 @@ def enrich_funding(
 
 @businesses.command("enrich-workforce")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_workforce(
     ctx: click.Context,
@@ -288,6 +345,7 @@ def enrich_workforce(
 
 @businesses.command("enrich-traffic")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_traffic(
     ctx: click.Context,
@@ -309,6 +367,7 @@ def enrich_traffic(
 
 @businesses.command("enrich-social")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_social(
     ctx: click.Context,
@@ -330,6 +389,7 @@ def enrich_social(
 
 @businesses.command("enrich-ratings")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_ratings(
     ctx: click.Context,
@@ -352,6 +412,7 @@ def enrich_ratings(
 @businesses.command("enrich-keywords")
 @business_match_options
 @click.option("--keywords", "-k", required=True, help="Keywords to search (comma-separated)")
+@output_options
 @click.pass_context
 def enrich_keywords(
     ctx: click.Context,
@@ -375,6 +436,7 @@ def enrich_keywords(
 
 @businesses.command("enrich-challenges")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_challenges(
     ctx: click.Context,
@@ -396,6 +458,7 @@ def enrich_challenges(
 
 @businesses.command("enrich-competitive")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_competitive(
     ctx: click.Context,
@@ -417,6 +480,7 @@ def enrich_competitive(
 
 @businesses.command("enrich-strategic")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_strategic(
     ctx: click.Context,
@@ -438,6 +502,7 @@ def enrich_strategic(
 
 @businesses.command("enrich-website-changes")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_website_changes(
     ctx: click.Context,
@@ -459,6 +524,7 @@ def enrich_website_changes(
 
 @businesses.command("enrich-webstack")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_webstack(
     ctx: click.Context,
@@ -480,6 +546,7 @@ def enrich_webstack(
 
 @businesses.command("enrich-hierarchy")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_hierarchy(
     ctx: click.Context,
@@ -501,6 +568,7 @@ def enrich_hierarchy(
 
 @businesses.command("enrich-intent")
 @business_match_options
+@output_options
 @click.pass_context
 def enrich_intent(
     ctx: click.Context,
@@ -525,7 +593,7 @@ def enrich_intent(
 @click.option(
     "--file", "-f",
     type=click.File("r"),
-    help="File with business IDs (one per line)"
+    help="CSV file with 'business_id' column (other columns are ignored)"
 )
 @click.option(
     "--match-file",
@@ -538,13 +606,16 @@ def enrich_intent(
     default=0.8,
     help="Minimum match confidence (0-1, default: 0.8)"
 )
+@click.option("--summary", is_flag=True, help="Print match/enrichment statistics to stderr")
+@output_options
 @click.pass_context
 def bulk_enrich(
     ctx: click.Context,
     ids: Optional[str],
     file,
     match_file,
-    min_confidence: float
+    min_confidence: float,
+    summary: bool,
 ) -> None:
     """Bulk enrich multiple businesses (up to 50)."""
     api = get_api(ctx)
@@ -553,7 +624,7 @@ def bulk_enrich(
     business_ids = []
 
     if file:
-        business_ids = [line.strip() for line in file if line.strip()]
+        business_ids = parse_csv_ids(file, column_name="business_id")
     elif ids:
         business_ids = [id.strip() for id in ids.split(",")]
     elif match_file:
@@ -581,19 +652,102 @@ def bulk_enrich(
             if len(match_failures) > 5:
                 click.echo(f"  ... and {len(match_failures) - 5} more", err=True)
 
+        if summary:
+            click.echo(f"Matched: {len(business_ids)}/{len(match_params_list)}, Failed: {len(match_failures)}", err=True)
+
         if not business_ids:
             raise click.UsageError("No businesses could be matched")
     else:
         raise click.UsageError("Provide --ids, --file, or --match-file")
 
-    if len(business_ids) > 50:
-        raise click.UsageError("Maximum 50 businesses per bulk request")
+    result = batched_enrich(
+        businesses_api.bulk_enrich,
+        business_ids,
+        entity_name="businesses"
+    )
+    output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
 
-    handle_api_call(ctx, businesses_api.bulk_enrich, business_ids)
+    if summary and not match_file:
+        click.echo(f"Enriched: {len(business_ids)} businesses", err=True)
+
+
+@businesses.command("enrich-file")
+@click.option(
+    "--file", "-f",
+    required=True,
+    type=click.File("r"),
+    help="CSV or JSON file with businesses to match and enrich"
+)
+@click.option(
+    "--min-confidence",
+    type=float,
+    default=0.8,
+    help="Minimum match confidence (0-1, default: 0.8)"
+)
+@click.option("--summary", is_flag=True, help="Print match/enrichment statistics to stderr")
+@output_options
+@click.pass_context
+def enrich_file(
+    ctx: click.Context,
+    file,
+    min_confidence: float,
+    summary: bool,
+) -> None:
+    """Match businesses from a file and enrich in one pass.
+
+    Reads CSV or JSON file with match parameters, resolves each to a
+    business ID, then bulk-enriches all matched businesses.
+    """
+    api = get_api(ctx)
+    businesses_api = BusinessesAPI(api)
+
+    # Parse file (auto-detect CSV vs JSON)
+    if hasattr(file, 'name') and file.name.endswith('.csv'):
+        match_params_list = parse_csv_business_match_params(file)
+    else:
+        match_params_list = json.load(file)
+
+    # Resolve each to a business ID
+    business_ids = []
+    match_failures = []
+
+    for i, params in enumerate(match_params_list):
+        try:
+            resolved_id = resolve_business_id(
+                businesses_api,
+                name=params.get("name"),
+                domain=params.get("domain"),
+                linkedin=params.get("linkedin_url"),
+                min_confidence=min_confidence
+            )
+            business_ids.append(resolved_id)
+        except (MatchError, LowConfidenceError) as e:
+            match_failures.append((i, params, str(e)))
+
+    if match_failures:
+        click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
+        for idx, params, error in match_failures[:5]:
+            click.echo(f"  {idx}: {params} - {error}", err=True)
+        if len(match_failures) > 5:
+            click.echo(f"  ... and {len(match_failures) - 5} more", err=True)
+
+    if summary:
+        click.echo(f"Matched: {len(business_ids)}/{len(match_params_list)}, Failed: {len(match_failures)}", err=True)
+
+    if not business_ids:
+        raise click.UsageError("No businesses could be matched from file")
+
+    result = batched_enrich(
+        businesses_api.bulk_enrich,
+        business_ids,
+        entity_name="businesses"
+    )
+    output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
 
 
 @businesses.command()
 @business_match_options
+@output_options
 @click.pass_context
 def lookalike(
     ctx: click.Context,
@@ -615,6 +769,7 @@ def lookalike(
 
 @businesses.command()
 @click.option("--query", "-q", required=True, help="Search query")
+@output_options
 @click.pass_context
 def autocomplete(ctx: click.Context, query: str) -> None:
     """Get autocomplete suggestions for company names."""
@@ -634,6 +789,7 @@ def events(ctx: click.Context) -> None:
 @events.command("list")
 @click.option("--ids", required=True, help="Business IDs (comma-separated)")
 @click.option("--events", "event_types", required=True, help="Event types (comma-separated)")
+@output_options
 @click.pass_context
 def list_events(
     ctx: click.Context,
@@ -659,6 +815,7 @@ def list_events(
 @click.option("--ids", required=True, help="Business IDs (comma-separated)")
 @click.option("--events", "event_types", required=True, help="Event types (comma-separated)")
 @click.option("--key", required=True, help="Enrollment key")
+@output_options
 @click.pass_context
 def enroll(
     ctx: click.Context,
@@ -683,6 +840,7 @@ def enroll(
 
 
 @events.command()
+@output_options
 @click.pass_context
 def enrollments(ctx: click.Context) -> None:
     """List event enrollments."""

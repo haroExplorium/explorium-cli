@@ -3,7 +3,7 @@
 import click
 
 from explorium_cli.api.webhooks import WebhooksAPI
-from explorium_cli.utils import get_api, handle_api_call
+from explorium_cli.utils import get_api, handle_api_call, output_options
 
 
 @click.group()
@@ -16,6 +16,7 @@ def webhooks(ctx: click.Context) -> None:
 @webhooks.command()
 @click.option("--partner-id", "-p", required=True, help="Partner identifier")
 @click.option("--url", "-u", required=True, help="Webhook URL")
+@output_options
 @click.pass_context
 def create(ctx: click.Context, partner_id: str, url: str) -> None:
     """Register a new webhook."""
@@ -26,6 +27,7 @@ def create(ctx: click.Context, partner_id: str, url: str) -> None:
 
 @webhooks.command()
 @click.option("--partner-id", "-p", required=True, help="Partner identifier")
+@output_options
 @click.pass_context
 def get(ctx: click.Context, partner_id: str) -> None:
     """Get webhook configuration."""
@@ -37,6 +39,7 @@ def get(ctx: click.Context, partner_id: str) -> None:
 @webhooks.command()
 @click.option("--partner-id", "-p", required=True, help="Partner identifier")
 @click.option("--url", "-u", required=True, help="New webhook URL")
+@output_options
 @click.pass_context
 def update(ctx: click.Context, partner_id: str, url: str) -> None:
     """Update webhook URL."""
@@ -47,6 +50,7 @@ def update(ctx: click.Context, partner_id: str, url: str) -> None:
 
 @webhooks.command()
 @click.option("--partner-id", "-p", required=True, help="Partner identifier")
+@output_options
 @click.pass_context
 def delete(ctx: click.Context, partner_id: str) -> None:
     """Delete a webhook."""

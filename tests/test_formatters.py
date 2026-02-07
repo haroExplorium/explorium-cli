@@ -54,26 +54,42 @@ class TestOutputFunction:
 class TestOutputJson:
     """Tests for JSON output."""
 
-    def test_output_json_dict(self):
-        """Test JSON output with dictionary."""
+    def test_output_json_dict_tty(self):
+        """Test JSON output with dictionary when stdout is a TTY."""
         data = {"name": "test", "value": 123}
-        with patch("explorium_cli.formatters.console") as mock_console:
+        with patch("explorium_cli.formatters.sys") as mock_sys, \
+             patch("explorium_cli.formatters.console") as mock_console:
+            mock_sys.stdout.isatty.return_value = True
             output_json(data)
             mock_console.print.assert_called_once()
 
-    def test_output_json_list(self):
-        """Test JSON output with list."""
+    def test_output_json_list_tty(self):
+        """Test JSON output with list when stdout is a TTY."""
         data = [{"id": 1}, {"id": 2}]
-        with patch("explorium_cli.formatters.console") as mock_console:
+        with patch("explorium_cli.formatters.sys") as mock_sys, \
+             patch("explorium_cli.formatters.console") as mock_console:
+            mock_sys.stdout.isatty.return_value = True
             output_json(data)
             mock_console.print.assert_called_once()
 
-    def test_output_json_nested(self):
-        """Test JSON output with nested data."""
+    def test_output_json_nested_tty(self):
+        """Test JSON output with nested data when stdout is a TTY."""
         data = {"nested": {"deep": {"value": "test"}}}
-        with patch("explorium_cli.formatters.console") as mock_console:
+        with patch("explorium_cli.formatters.sys") as mock_sys, \
+             patch("explorium_cli.formatters.console") as mock_console:
+            mock_sys.stdout.isatty.return_value = True
             output_json(data)
             mock_console.print.assert_called_once()
+
+    def test_output_json_plain_when_piped(self, capsys):
+        """Test JSON output is plain (no ANSI) when stdout is piped."""
+        data = {"name": "test", "value": 123}
+        with patch("explorium_cli.formatters.sys") as mock_sys:
+            mock_sys.stdout.isatty.return_value = False
+            output_json(data)
+        captured = capsys.readouterr()
+        parsed = json.loads(captured.out)
+        assert parsed == data
 
 
 class TestOutputTable:

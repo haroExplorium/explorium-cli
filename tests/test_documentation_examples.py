@@ -49,7 +49,7 @@ def mock_businesses_api():
         mock_instance = MagicMock()
         mock_instance.match.return_value = {
             "status": "success",
-            "data": [{"business_id": "8adce3ca1cef0c986b22310e369a0793", "name": "Test Company"}]
+            "matched_businesses": [{"business_id": "8adce3ca1cef0c986b22310e369a0793", "name": "Test Company"}]
         }
         mock_instance.search.return_value = {
             "status": "success",
@@ -92,7 +92,7 @@ def mock_prospects_api():
         mock_instance = MagicMock()
         mock_instance.match.return_value = {
             "status": "success",
-            "data": [{"prospect_id": "prospect_001", "first_name": "John", "last_name": "Doe"}]
+            "matched_prospects": [{"prospect_id": "prospect_001", "first_name": "John", "last_name": "Doe"}]
         }
         mock_instance.search.return_value = {
             "status": "success",
@@ -629,9 +629,9 @@ class TestBusinessBulkEnrichExamples:
         mock_businesses_api.bulk_enrich.assert_called_once_with(["id1", "id2", "id3"])
 
     def test_bulk_enrich_from_file(self, runner: CliRunner, config_file: Path, mock_businesses_api, tmp_path: Path):
-        """Test: explorium businesses bulk-enrich -f business_ids.txt"""
-        ids_file = tmp_path / "business_ids.txt"
-        ids_file.write_text("8adce3ca1cef0c986b22310e369a0793\n7bdef4ab2deg1d097c33421f480b1894\n6cegh5bc3efh2e108d44532g591c2905")
+        """Test: explorium businesses bulk-enrich -f business_ids.csv"""
+        ids_file = tmp_path / "business_ids.csv"
+        ids_file.write_text("business_id\n8adce3ca1cef0c986b22310e369a0793\n7bdef4ab2deg1d097c33421f480b1894\n6cegh5bc3efh2e108d44532g591c2905")
 
         result = runner.invoke(cli, [
             "--config", str(config_file),
@@ -640,16 +640,21 @@ class TestBusinessBulkEnrichExamples:
         ])
         mock_businesses_api.bulk_enrich.assert_called_once()
 
-    def test_bulk_enrich_max_50_limit(self, runner: CliRunner, config_file: Path):
-        """Test that bulk-enrich enforces 50 ID limit."""
+    def test_bulk_enrich_auto_batches_over_50(self, runner: CliRunner, config_file: Path, mock_businesses_api):
+        """Test that bulk-enrich auto-batches over 50 IDs."""
+        mock_businesses_api.bulk_enrich.side_effect = [
+            {"status": "success", "data": []},
+            {"status": "success", "data": []}
+        ]
         ids = ",".join([f"id{i}" for i in range(51)])
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "businesses", "bulk-enrich",
             "--ids", ids
         ])
-        # Should fail with error about max 50
-        assert result.exit_code != 0
+        # Should succeed with auto-batching (2 batches: 50 + 1)
+        assert result.exit_code == 0
+        assert mock_businesses_api.bulk_enrich.call_count == 2
 
 
 # =============================================================================
@@ -1159,14 +1164,13 @@ class TestProspectBulkEnrichExamples:
             "--ids", "prospect_id1,prospect_id2,prospect_id3"
         ])
         mock_prospects_api.bulk_enrich.assert_called_once_with(
-            ["prospect_id1", "prospect_id2", "prospect_id3"],
-            None
+            ["prospect_id1", "prospect_id2", "prospect_id3"]
         )
 
     def test_bulk_enrich_from_file(self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path):
-        """Test: explorium prospects bulk-enrich -f prospect_ids.txt"""
-        ids_file = tmp_path / "prospect_ids.txt"
-        ids_file.write_text("prospect_id1\nprospect_id2\nprospect_id3")
+        """Test: explorium prospects bulk-enrich -f prospect_ids.csv"""
+        ids_file = tmp_path / "prospect_ids.csv"
+        ids_file.write_text("prospect_id\nprospect_id1\nprospect_id2\nprospect_id3")
 
         result = runner.invoke(cli, [
             "--config", str(config_file),
@@ -1184,32 +1188,62 @@ class TestProspectBulkEnrichExamples:
             "--types", "contacts"
         ])
         mock_prospects_api.bulk_enrich.assert_called_once_with(
-            ["id1", "id2"],
-            ["contacts"]
+            ["id1", "id2"]
         )
 
-    def test_bulk_enrich_with_types_contacts_social(self, runner: CliRunner, config_file: Path, mock_prospects_api):
-        """Test: explorium prospects bulk-enrich --ids 'id1,id2' --types 'contacts,social'"""
+    def test_bulk_enrich_with_types_profile(self, runner: CliRunner, config_file: Path, mock_prospects_api):
+        """Test: explorium prospects bulk-enrich --ids 'id1,id2' --types 'profile'"""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "prospects", "bulk-enrich",
             "--ids", "id1,id2",
-            "--types", "contacts,social"
+            "--types", "profile"
         ])
-        mock_prospects_api.bulk_enrich.assert_called_once_with(
-            ["id1", "id2"],
-            ["contacts", "social"]
+        mock_prospects_api.bulk_enrich_profiles.assert_called_once_with(
+            ["id1", "id2"]
         )
 
-    def test_bulk_enrich_with_all_types(self, runner: CliRunner, config_file: Path, mock_prospects_api):
-        """Test: explorium prospects bulk-enrich --ids 'id1,id2' --types 'contacts,social,profile'"""
+    def test_bulk_enrich_with_types_all(self, runner: CliRunner, config_file: Path, mock_prospects_api):
+        """Test: explorium prospects bulk-enrich --ids 'id1,id2' --types 'all'
+        'all' expands to contacts + profile (two separate API calls)."""
+        mock_prospects_api.bulk_enrich_profiles.return_value = {
+            "status": "success", "data": [{"prospect_id": "id1"}]
+        }
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "prospects", "bulk-enrich",
             "--ids", "id1,id2",
-            "--types", "contacts,social,profile"
+            "--types", "all"
         ])
+        assert result.exit_code == 0
         mock_prospects_api.bulk_enrich.assert_called_once()
+        mock_prospects_api.bulk_enrich_profiles.assert_called_once()
+
+    def test_bulk_enrich_types_comma_separated(self, runner: CliRunner, config_file: Path, mock_prospects_api):
+        """Test: explorium prospects bulk-enrich --ids 'id1,id2' --types 'contacts,profile'"""
+        mock_prospects_api.bulk_enrich_profiles.return_value = {
+            "status": "success", "data": [{"prospect_id": "id1", "job_title": "VP"}]
+        }
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "bulk-enrich",
+            "--ids", "id1,id2",
+            "--types", "contacts,profile"
+        ])
+        assert result.exit_code == 0
+        mock_prospects_api.bulk_enrich.assert_called_once()
+        mock_prospects_api.bulk_enrich_profiles.assert_called_once()
+
+    def test_bulk_enrich_types_invalid_in_list(self, runner: CliRunner, config_file: Path, mock_prospects_api):
+        """Test: explorium prospects bulk-enrich --ids 'id1' --types 'contacts,bogus' raises error"""
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "bulk-enrich",
+            "--ids", "id1",
+            "--types", "contacts,bogus"
+        ])
+        assert result.exit_code != 0
+        assert "Unknown enrichment type 'bogus'" in result.output or "Unknown enrichment type 'bogus'" in result.stderr
 
 
 # =============================================================================
@@ -1710,3 +1744,678 @@ class TestWorkflowExamples:
             "--events", "new_funding_round",
             "--events-days", "90"])
         assert mock_businesses_api.search.called
+
+
+# =============================================================================
+# Prospect Enrich-File Command Tests
+# =============================================================================
+
+class TestProspectEnrichFileExamples:
+    """Tests for prospects enrich-file command."""
+
+    def test_enrich_file_csv(self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path):
+        """Test: explorium prospects enrich-file -f prospects.csv"""
+        csv_file = tmp_path / "prospects.csv"
+        csv_file.write_text("first_name,last_name,company_name\nJohn,Doe,Acme Corp\nJane,Smith,Beta Inc")
+
+        mock_prospects_api.match.return_value = {
+            "matched_prospects": [{"prospect_id": "p1", "match_confidence": 0.95}]
+        }
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "enrich-file",
+            "-f", str(csv_file)
+        ])
+        assert result.exit_code == 0
+        assert mock_prospects_api.match.called
+        mock_prospects_api.bulk_enrich.assert_called_once()
+
+    def test_enrich_file_json(self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path):
+        """Test: explorium prospects enrich-file -f prospects.json"""
+        json_file = tmp_path / "prospects.json"
+        json_file.write_text(json.dumps([
+            {"full_name": "John Doe", "company_name": "Acme Corp"},
+            {"linkedin": "https://linkedin.com/in/janesmith"}
+        ]))
+
+        mock_prospects_api.match.return_value = {
+            "matched_prospects": [{"prospect_id": "p1", "match_confidence": 0.95}]
+        }
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "enrich-file",
+            "-f", str(json_file)
+        ])
+        assert result.exit_code == 0
+        mock_prospects_api.bulk_enrich.assert_called_once()
+
+    def test_enrich_file_types_profile(self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path):
+        """Test: explorium prospects enrich-file -f file.json --types profile"""
+        json_file = tmp_path / "prospects.json"
+        json_file.write_text(json.dumps([{"full_name": "John Doe", "company_name": "Acme"}]))
+
+        mock_prospects_api.match.return_value = {
+            "matched_prospects": [{"prospect_id": "p1", "match_confidence": 0.95}]
+        }
+        mock_prospects_api.bulk_enrich_profiles.return_value = {
+            "status": "success", "data": [{"prospect_id": "p1"}]
+        }
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "enrich-file",
+            "-f", str(json_file),
+            "--types", "profile"
+        ])
+        assert result.exit_code == 0
+        mock_prospects_api.bulk_enrich_profiles.assert_called_once()
+
+    def test_enrich_file_types_all(self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path):
+        """Test: explorium prospects enrich-file -f file.json --types all
+        'all' expands to contacts + profile (two separate API calls)."""
+        json_file = tmp_path / "prospects.json"
+        json_file.write_text(json.dumps([{"full_name": "John Doe", "company_name": "Acme"}]))
+
+        mock_prospects_api.match.return_value = {
+            "matched_prospects": [{"prospect_id": "p1", "match_confidence": 0.95}]
+        }
+        mock_prospects_api.bulk_enrich_profiles.return_value = {
+            "status": "success", "data": [{"prospect_id": "p1"}]
+        }
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "enrich-file",
+            "-f", str(json_file),
+            "--types", "all"
+        ])
+        assert result.exit_code == 0
+        mock_prospects_api.bulk_enrich.assert_called_once()
+        mock_prospects_api.bulk_enrich_profiles.assert_called_once()
+
+    def test_enrich_file_match_failures_still_enriches(self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path):
+        """Test that partial match failures don't abort — successful matches still enrich."""
+        json_file = tmp_path / "prospects.json"
+        json_file.write_text(json.dumps([
+            {"full_name": "John Doe", "company_name": "Acme Corp"},
+            {"full_name": "Unknown Person", "company_name": "Nowhere Inc"},
+            {"full_name": "Jane Smith", "company_name": "Beta Inc"}
+        ]))
+
+        # First and third calls succeed, second fails (empty matches triggers MatchError)
+        mock_prospects_api.match.side_effect = [
+            {"matched_prospects": [{"prospect_id": "p1", "match_confidence": 0.95}]},
+            {"matched_prospects": []},
+            {"matched_prospects": [{"prospect_id": "p3", "match_confidence": 0.90}]},
+        ]
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "enrich-file",
+            "-f", str(json_file)
+        ])
+        assert result.exit_code == 0
+        # Should have enriched the 2 successful matches
+        mock_prospects_api.bulk_enrich.assert_called_once()
+        call_args = mock_prospects_api.bulk_enrich.call_args[0][0]
+        assert len(call_args) == 2
+        assert "p1" in call_args
+        assert "p3" in call_args
+        # Should have warning in stderr
+        assert "1 match failures" in result.stderr
+
+    def test_enrich_file_types_comma_separated(self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path):
+        """Test: explorium prospects enrich-file -f file.json --types contacts,profile calls both APIs."""
+        json_file = tmp_path / "prospects.json"
+        json_file.write_text(json.dumps([{"full_name": "John Doe", "company_name": "Acme"}]))
+
+        mock_prospects_api.match.return_value = {
+            "matched_prospects": [{"prospect_id": "p1", "match_confidence": 0.95}]
+        }
+        mock_prospects_api.bulk_enrich_profiles.return_value = {
+            "status": "success", "data": [{"prospect_id": "p1", "job_title": "VP"}]
+        }
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "enrich-file",
+            "-f", str(json_file),
+            "--types", "contacts,profile"
+        ])
+        assert result.exit_code == 0
+        mock_prospects_api.bulk_enrich.assert_called_once()
+        mock_prospects_api.bulk_enrich_profiles.assert_called_once()
+
+    def test_enrich_file_types_invalid_in_list(self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path):
+        """Test: explorium prospects enrich-file --types contacts,bogus raises error."""
+        json_file = tmp_path / "prospects.json"
+        json_file.write_text(json.dumps([{"full_name": "John Doe", "company_name": "Acme"}]))
+
+        mock_prospects_api.match.return_value = {
+            "matched_prospects": [{"prospect_id": "p1", "match_confidence": 0.95}]
+        }
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "enrich-file",
+            "-f", str(json_file),
+            "--types", "contacts,bogus"
+        ])
+        assert result.exit_code != 0
+        assert "Unknown enrichment type 'bogus'" in result.output or "Unknown enrichment type 'bogus'" in result.stderr
+
+
+# =============================================================================
+# Business Enrich-File Command Tests
+# =============================================================================
+
+class TestBusinessEnrichFileExamples:
+    """Tests for businesses enrich-file command."""
+
+    def test_enrich_file_csv(self, runner: CliRunner, config_file: Path, mock_businesses_api, tmp_path: Path):
+        """Test: explorium businesses enrich-file -f companies.csv"""
+        csv_file = tmp_path / "companies.csv"
+        csv_file.write_text("name,domain\nStarbucks,starbucks.com\nMicrosoft,microsoft.com")
+
+        mock_businesses_api.match.return_value = {
+            "matched_businesses": [{"business_id": "b1", "match_confidence": 0.95}]
+        }
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "businesses", "enrich-file",
+            "-f", str(csv_file)
+        ])
+        assert result.exit_code == 0
+        assert mock_businesses_api.match.called
+        mock_businesses_api.bulk_enrich.assert_called_once()
+
+    def test_enrich_file_json(self, runner: CliRunner, config_file: Path, mock_businesses_api, tmp_path: Path):
+        """Test: explorium businesses enrich-file -f companies.json"""
+        json_file = tmp_path / "companies.json"
+        json_file.write_text(json.dumps([
+            {"name": "Starbucks", "domain": "starbucks.com"},
+            {"name": "Microsoft", "domain": "microsoft.com"}
+        ]))
+
+        mock_businesses_api.match.return_value = {
+            "matched_businesses": [{"business_id": "b1", "match_confidence": 0.95}]
+        }
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "businesses", "enrich-file",
+            "-f", str(json_file)
+        ])
+        assert result.exit_code == 0
+        mock_businesses_api.bulk_enrich.assert_called_once()
+
+
+# =============================================================================
+# Feature 8: Strip full_name when linkedin/email present without company_name
+# =============================================================================
+
+class TestFeature8FullNameStripping:
+    """Tests for Feature 8: full_name stripping when strong identifiers present."""
+
+    def test_match_linkedin_without_company_strips_fullname(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api
+    ):
+        """When linkedin is present without company_name, full_name should be stripped."""
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "match",
+            "--first-name", "John",
+            "--last-name", "Doe",
+            "--linkedin", "https://linkedin.com/in/johndoe"
+        ])
+        assert result.exit_code == 0
+        mock_prospects_api.match.assert_called_once_with([{
+            "linkedin": "https://linkedin.com/in/johndoe"
+        }])
+
+    def test_match_email_without_company_strips_fullname(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api
+    ):
+        """When email is present without company_name, full_name should be stripped."""
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "match",
+            "--first-name", "John",
+            "--last-name", "Doe",
+            "--email", "john@acme.com"
+        ])
+        assert result.exit_code == 0
+        mock_prospects_api.match.assert_called_once_with([{
+            "email": "john@acme.com"
+        }])
+
+    def test_match_linkedin_with_company_includes_fullname(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api
+    ):
+        """When linkedin AND company_name are present, full_name should be included."""
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "match",
+            "--first-name", "John",
+            "--last-name", "Doe",
+            "--linkedin", "https://linkedin.com/in/johndoe",
+            "--company-name", "Acme Corp"
+        ])
+        assert result.exit_code == 0
+        mock_prospects_api.match.assert_called_once_with([{
+            "full_name": "John Doe",
+            "linkedin": "https://linkedin.com/in/johndoe",
+            "company_name": "Acme Corp"
+        }])
+
+    def test_match_name_only_includes_fullname(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api
+    ):
+        """When no strong identifiers are present, full_name should be included."""
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "match",
+            "--first-name", "Jane",
+            "--last-name", "Smith"
+        ])
+        assert result.exit_code == 0
+        mock_prospects_api.match.assert_called_once_with([{
+            "full_name": "Jane Smith"
+        }])
+
+
+# =============================================================================
+# Feature 9: Global --output-file flag
+# =============================================================================
+
+class TestFeature9OutputFile:
+    """Tests for Feature 9: --output-file global flag."""
+
+    def test_global_output_file_option_exists(self, runner: CliRunner):
+        """Test that --output-file is shown in --help."""
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        assert "--output-file" in result.output
+
+    def test_output_json_to_file(
+        self, runner: CliRunner, config_file: Path, mock_businesses_api, tmp_path: Path
+    ):
+        """Test that --output-file writes clean JSON to file."""
+        out_file = tmp_path / "output.json"
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "--output-file", str(out_file),
+            "businesses", "search", "--country", "us"
+        ])
+        assert result.exit_code == 0
+        assert out_file.exists()
+        data = json.loads(out_file.read_text())
+        assert "data" in data
+        # Stderr should have confirmation
+        assert "Output written to" in result.stderr
+
+    def test_output_csv_to_file(
+        self, runner: CliRunner, config_file: Path, mock_businesses_api, tmp_path: Path
+    ):
+        """Test that --output-file with -o csv writes CSV to file."""
+        out_file = tmp_path / "output.csv"
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "-o", "csv",
+            "--output-file", str(out_file),
+            "businesses", "search", "--country", "us"
+        ])
+        assert result.exit_code == 0
+        assert out_file.exists()
+        content = out_file.read_text()
+        assert "business_id" in content  # CSV header
+        assert "Output written to" in result.stderr
+
+    def test_output_file_no_ansi(
+        self, runner: CliRunner, config_file: Path, mock_businesses_api, tmp_path: Path
+    ):
+        """Test that file output contains no ANSI escape codes."""
+        out_file = tmp_path / "output.json"
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "--output-file", str(out_file),
+            "businesses", "search", "--country", "us"
+        ])
+        assert result.exit_code == 0
+        content = out_file.read_text()
+        assert "\033[" not in content  # No ANSI escape codes
+
+    def test_output_file_table_falls_back_to_json(
+        self, runner: CliRunner, config_file: Path, mock_businesses_api, tmp_path: Path
+    ):
+        """Test that table format with --output-file falls back to JSON."""
+        out_file = tmp_path / "output.json"
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "-o", "table",
+            "--output-file", str(out_file),
+            "businesses", "search", "--country", "us"
+        ])
+        assert result.exit_code == 0
+        data = json.loads(out_file.read_text())
+        assert isinstance(data, dict)
+
+
+# =============================================================================
+# Feature 10: --summary flag
+# =============================================================================
+
+class TestFeature10Summary:
+    """Tests for Feature 10: --summary flag for match/enrichment stats."""
+
+    def test_prospect_match_with_summary(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api
+    ):
+        """Test that --summary prints match stats to stderr."""
+        mock_prospects_api.match.return_value = {
+            "status": "success",
+            "matched_prospects": [
+                {"prospect_id": "p1", "match_confidence": 0.95}
+            ]
+        }
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "match",
+            "--first-name", "John",
+            "--last-name", "Doe",
+            "--company-name", "Acme",
+            "--summary"
+        ])
+        assert result.exit_code == 0
+        assert "Matched: 1/1" in result.stderr
+
+    def test_business_match_with_summary(
+        self, runner: CliRunner, config_file: Path, mock_businesses_api
+    ):
+        """Test that businesses match --summary prints stats to stderr."""
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "businesses", "match",
+            "--name", "Starbucks",
+            "--summary"
+        ])
+        assert result.exit_code == 0
+        assert "Matched:" in result.stderr
+
+    def test_prospect_enrich_file_with_summary(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path
+    ):
+        """Test that enrich-file --summary prints match-phase stats."""
+        json_file = tmp_path / "prospects.json"
+        json_file.write_text(json.dumps([
+            {"full_name": "John Doe", "company_name": "Acme Corp"},
+            {"full_name": "Unknown Person", "company_name": "Nowhere Inc"},
+            {"full_name": "Jane Smith", "company_name": "Beta Inc"}
+        ]))
+
+        mock_prospects_api.match.side_effect = [
+            {"matched_prospects": [{"prospect_id": "p1", "match_confidence": 0.95}]},
+            {"matched_prospects": []},
+            {"matched_prospects": [{"prospect_id": "p3", "match_confidence": 0.90}]},
+        ]
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "enrich-file",
+            "-f", str(json_file),
+            "--summary"
+        ])
+        assert result.exit_code == 0
+        assert "Matched: 2/3, Failed: 1" in result.stderr
+
+    def test_business_bulk_enrich_with_summary(
+        self, runner: CliRunner, config_file: Path, mock_businesses_api
+    ):
+        """Test that bulk-enrich --summary with --ids prints enrichment count."""
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "businesses", "bulk-enrich",
+            "--ids", "id1,id2,id3",
+            "--summary"
+        ])
+        assert result.exit_code == 0
+        assert "Enriched: 3 businesses" in result.stderr
+
+
+# =============================================================================
+# Feature 6 & 7 Tests: Pipeable Match Output + Subcommand --format
+# =============================================================================
+
+class TestMatchPipeableOutput:
+    """Tests for Feature 6: match output directly usable by bulk-enrich."""
+
+    def test_match_csv_output_has_prospect_id_column(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api
+    ):
+        """Match with CSV output should produce flat records with prospect_id column."""
+        mock_prospects_api.match.return_value = {
+            "matched_prospects": [
+                {"prospect_id": "p1", "first_name": "John", "last_name": "Doe"},
+                {"prospect_id": "p2", "first_name": "Jane", "last_name": "Smith"},
+            ]
+        }
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "match",
+            "--email", "john@example.com",
+            "--format", "csv",
+        ])
+        assert result.exit_code == 0
+        lines = result.output.strip().split("\n")
+        header = lines[0]
+        assert "prospect_id" in header
+        assert "p1" in lines[1]
+        assert "p2" in lines[2]
+
+    def test_match_csv_output_has_business_id_column(
+        self, runner: CliRunner, config_file: Path, mock_businesses_api
+    ):
+        """Match with CSV output should produce flat records with business_id column."""
+        mock_businesses_api.match.return_value = {
+            "matched_businesses": [
+                {"business_id": "b1", "name": "Acme Corp"},
+                {"business_id": "b2", "name": "Globex Inc"},
+            ]
+        }
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "businesses", "match",
+            "--name", "Acme",
+            "--format", "csv",
+        ])
+        assert result.exit_code == 0
+        lines = result.output.strip().split("\n")
+        header = lines[0]
+        assert "business_id" in header
+        assert "b1" in lines[1]
+        assert "b2" in lines[2]
+
+    def test_match_ids_only_prospects(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api
+    ):
+        """--ids-only should print just prospect IDs, one per line."""
+        mock_prospects_api.match.return_value = {
+            "matched_prospects": [
+                {"prospect_id": "p1", "first_name": "John"},
+                {"prospect_id": "p2", "first_name": "Jane"},
+            ]
+        }
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "match",
+            "--email", "john@example.com",
+            "--ids-only",
+        ])
+        assert result.exit_code == 0
+        ids = result.output.strip().split("\n")
+        assert ids == ["p1", "p2"]
+
+    def test_match_ids_only_businesses(
+        self, runner: CliRunner, config_file: Path, mock_businesses_api
+    ):
+        """--ids-only should print just business IDs, one per line."""
+        mock_businesses_api.match.return_value = {
+            "matched_businesses": [
+                {"business_id": "b1", "name": "Acme"},
+                {"business_id": "b2", "name": "Globex"},
+            ]
+        }
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "businesses", "match",
+            "--name", "Acme",
+            "--ids-only",
+        ])
+        assert result.exit_code == 0
+        ids = result.output.strip().split("\n")
+        assert ids == ["b1", "b2"]
+
+    def test_match_csv_to_bulk_enrich_pipeline(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path
+    ):
+        """End-to-end: match CSV output should be parseable by bulk-enrich --file."""
+        # Step 1: match produces CSV with prospect_id column
+        mock_prospects_api.match.return_value = {
+            "matched_prospects": [
+                {"prospect_id": "p1", "first_name": "John"},
+                {"prospect_id": "p2", "first_name": "Jane"},
+            ]
+        }
+        match_result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "match",
+            "--email", "john@example.com",
+            "--format", "csv",
+        ])
+        assert match_result.exit_code == 0
+
+        # Step 2: Write match CSV to a file
+        csv_file = tmp_path / "match_output.csv"
+        csv_file.write_text(match_result.output)
+
+        # Step 3: bulk-enrich reads the CSV
+        mock_prospects_api.bulk_enrich.return_value = {
+            "status": "success",
+            "data": [{"prospect_id": "p1", "email": "john@co.com"}]
+        }
+        enrich_result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "bulk-enrich",
+            "--file", str(csv_file),
+        ])
+        assert enrich_result.exit_code == 0
+        mock_prospects_api.bulk_enrich.assert_called_once()
+        call_args = mock_prospects_api.bulk_enrich.call_args[0][0]
+        assert "p1" in call_args
+        assert "p2" in call_args
+
+
+class TestSubcommandFormatOption:
+    """Tests for Feature 7: subcommand-level --format option."""
+
+    def test_format_overrides_global_output(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api
+    ):
+        """--format csv on subcommand should override -o json."""
+        mock_prospects_api.match.return_value = {
+            "matched_prospects": [
+                {"prospect_id": "p1", "first_name": "John"},
+            ]
+        }
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "-o", "json",
+            "prospects", "match",
+            "--email", "john@example.com",
+            "--format", "csv",
+        ])
+        assert result.exit_code == 0
+        # CSV output starts with header row, not JSON brace
+        assert result.output.strip().startswith("first_name") or "prospect_id" in result.output.split("\n")[0]
+
+    def test_format_on_bulk_enrich(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api
+    ):
+        """--format csv should work on bulk-enrich."""
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "-o", "json",
+            "prospects", "bulk-enrich",
+            "--ids", "p1,p2",
+            "--format", "csv",
+        ])
+        assert result.exit_code == 0
+        assert "prospect_id" in result.output.split("\n")[0]
+
+    def test_format_on_enrich_file(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path
+    ):
+        """--format csv should work on enrich-file."""
+        # Create a CSV input file
+        csv_file = tmp_path / "prospects.csv"
+        csv_file.write_text("full_name,company_name\nJohn Doe,Acme Corp\n")
+
+        mock_prospects_api.match.return_value = {
+            "matched_prospects": [{"prospect_id": "p1"}]
+        }
+        mock_prospects_api.bulk_enrich.return_value = {
+            "status": "success",
+            "data": [{"prospect_id": "p1", "email": "john@acme.com"}]
+        }
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "-o", "json",
+            "prospects", "enrich-file",
+            "--file", str(csv_file),
+            "--format", "csv",
+        ])
+        assert result.exit_code == 0
+        assert "prospect_id" in result.output.split("\n")[0]
+
+    def test_format_on_business_bulk_enrich(
+        self, runner: CliRunner, config_file: Path, mock_businesses_api
+    ):
+        """--format csv should work on businesses bulk-enrich."""
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "-o", "json",
+            "businesses", "bulk-enrich",
+            "--ids", "b1,b2",
+            "--format", "csv",
+        ])
+        assert result.exit_code == 0
+        assert "business_id" in result.output.split("\n")[0]
+
+    def test_format_on_business_enrich_file(
+        self, runner: CliRunner, config_file: Path, mock_businesses_api, tmp_path: Path
+    ):
+        """--format csv should work on businesses enrich-file."""
+        csv_file = tmp_path / "businesses.csv"
+        csv_file.write_text("name,domain\nAcme Corp,acme.com\n")
+
+        mock_businesses_api.match.return_value = {
+            "matched_businesses": [{"business_id": "b1"}]
+        }
+        mock_businesses_api.bulk_enrich.return_value = {
+            "status": "success",
+            "data": [{"business_id": "b1", "revenue": "10M"}]
+        }
+
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "-o", "json",
+            "businesses", "enrich-file",
+            "--file", str(csv_file),
+            "--format", "csv",
+        ])
+        assert result.exit_code == 0
+        assert "business_id" in result.output.split("\n")[0]

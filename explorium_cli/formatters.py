@@ -1,6 +1,9 @@
 """Output formatting utilities for Explorium CLI."""
 
+import csv
+import io
 import json
+import sys
 from typing import Any, Optional
 
 from rich.console import Console
@@ -13,19 +16,28 @@ console = Console()
 error_console = Console(stderr=True)
 
 
-def output(data: Any, format: str = "json", title: Optional[str] = None) -> None:
+def output(data: Any, format: str = "json", title: Optional[str] = None, file_path: Optional[str] = None) -> None:
     """
     Output data in the specified format.
 
     Args:
         data: Data to output (dict or list).
-        format: Output format ('json' or 'table').
+        format: Output format ('json', 'table', or 'csv').
         title: Optional title for table output.
+        file_path: Optional file path to write clean output to.
     """
+    if file_path:
+        # For table format with file output, fall back to JSON
+        write_format = "json" if format == "table" else format
+        _write_to_file(data, write_format, file_path)
+        return
+
     if format == "json":
         output_json(data)
     elif format == "table":
         output_table(data, title=title)
+    elif format == "csv":
+        output_csv(data)
     else:
         output_json(data)  # default to JSON
 
@@ -33,8 +45,11 @@ def output(data: Any, format: str = "json", title: Optional[str] = None) -> None
 def output_json(data: Any) -> None:
     """Output data as formatted JSON."""
     json_str = json.dumps(data, indent=2, default=str)
-    syntax = Syntax(json_str, "json", theme="monokai", word_wrap=True)
-    console.print(syntax)
+    if sys.stdout.isatty():
+        syntax = Syntax(json_str, "json", theme="monokai", word_wrap=True)
+        console.print(syntax)
+    else:
+        print(json_str)
 
 
 def output_table(data: Any, title: Optional[str] = None) -> None:
@@ -95,6 +110,64 @@ def output_table(data: Any, title: Optional[str] = None) -> None:
     console.print(table)
 
 
+def output_csv(data: Any) -> None:
+    """
+    Output data as CSV.
+
+    Args:
+        data: Data to output. Can be a dict (with 'data' key) or list of dicts.
+    """
+    if data is None:
+        return
+
+    # Handle API response format (extract 'data' key)
+    if isinstance(data, dict):
+        if "data" in data:
+            data = data["data"]
+        else:
+            data = [data]
+
+    if not isinstance(data, list):
+        # Can't convert non-list to CSV, fall back to JSON
+        output_json(data)
+        return
+
+    if not data:
+        return
+
+    # Get all unique keys across all rows for headers
+    all_keys: set[str] = set()
+    for row in data:
+        if isinstance(row, dict):
+            all_keys.update(row.keys())
+
+    if not all_keys:
+        return
+
+    # Sort keys for consistent column order
+    fieldnames = sorted(all_keys)
+
+    # Write CSV to string buffer, then print
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
+    writer.writeheader()
+
+    for row in data:
+        if isinstance(row, dict):
+            # Convert complex values to JSON strings
+            processed_row = {}
+            for key, val in row.items():
+                if isinstance(val, (dict, list)):
+                    processed_row[key] = json.dumps(val, default=str)
+                elif val is None:
+                    processed_row[key] = ""
+                else:
+                    processed_row[key] = val
+            writer.writerow(processed_row)
+
+    print(output.getvalue(), end="")
+
+
 def output_error(message: str, details: Optional[dict] = None) -> None:
     """
     Output an error message.
@@ -138,3 +211,55 @@ def format_prospect(prospect: dict) -> str:
     title = prospect.get("job_title", "")
     prospect_id = prospect.get("prospect_id", "")
     return f"{first_name} {last_name} - {title} [ID: {prospect_id}]"
+
+
+def _write_to_file(data: Any, format: str, file_path: str) -> None:
+    """Write clean data to a file (no Rich/ANSI formatting).
+
+    Args:
+        data: Data to write.
+        format: 'json' or 'csv'.
+        file_path: Destination file path.
+    """
+    import click as _click
+
+    if format == "csv":
+        # Normalize data for CSV
+        rows = data
+        if isinstance(rows, dict):
+            rows = rows.get("data", [rows])
+        if not isinstance(rows, list):
+            # Can't write non-list as CSV, fall back to JSON
+            format = "json"
+
+        if format == "csv" and isinstance(rows, list) and rows:
+            all_keys: set[str] = set()
+            for row in rows:
+                if isinstance(row, dict):
+                    all_keys.update(row.keys())
+            fieldnames = sorted(all_keys)
+
+            with open(file_path, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+                writer.writeheader()
+                for row in rows:
+                    if isinstance(row, dict):
+                        processed = {}
+                        for key, val in row.items():
+                            if isinstance(val, (dict, list)):
+                                processed[key] = json.dumps(val, default=str)
+                            elif val is None:
+                                processed[key] = ""
+                            else:
+                                processed[key] = val
+                        writer.writerow(processed)
+
+            _click.echo(f"Output written to: {file_path}", err=True)
+            return
+
+    # Default: write JSON
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=2, default=str)
+        f.write("\n")
+
+    _click.echo(f"Output written to: {file_path}", err=True)

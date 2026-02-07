@@ -185,12 +185,17 @@ def resolve_prospect_id(
 
     # Build match params
     match_params = {}
-    if first_name and last_name:
-        match_params["full_name"] = f"{first_name} {last_name}"
-    elif first_name:
-        match_params["full_name"] = first_name
-    elif last_name:
-        match_params["full_name"] = last_name
+    has_strong_id = bool(linkedin)
+    include_name = company_name or not has_strong_id
+
+    if include_name:
+        if first_name and last_name:
+            match_params["full_name"] = f"{first_name} {last_name}"
+        elif first_name:
+            match_params["full_name"] = first_name
+        elif last_name:
+            match_params["full_name"] = last_name
+
     if linkedin:
         match_params["linkedin"] = linkedin
     if company_name:

@@ -196,18 +196,30 @@ class TestBusinessCommands:
 
             mock_instance.enrich.assert_called_once_with("abc123")
 
-    def test_businesses_bulk_enrich_limit(self, runner: CliRunner, config_with_key: Path):
-        """Test businesses bulk-enrich enforces 50 limit."""
-        ids = ",".join([f"id{i}" for i in range(51)])
+    def test_businesses_bulk_enrich_batches_over_50(self, runner: CliRunner, config_with_key: Path):
+        """Test businesses bulk-enrich auto-batches over 50 IDs."""
+        with patch("explorium_cli.commands.businesses.BusinessesAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.bulk_enrich.side_effect = [
+                {"status": "success", "data": [{"id": f"id{i}"} for i in range(50)]},
+                {"status": "success", "data": [{"id": f"id{i}"} for i in range(50, 75)]}
+            ]
+            MockAPI.return_value = mock_instance
 
-        result = runner.invoke(
-            cli,
-            ["--config", str(config_with_key), "businesses", "bulk-enrich", "--ids", ids]
-        )
+            ids = ",".join([f"id{i}" for i in range(75)])
+            result = runner.invoke(
+                cli,
+                ["--config", str(config_with_key), "businesses", "bulk-enrich", "--ids", ids]
+            )
 
-        assert result.exit_code != 0
-        full_output = result.output + (result.stderr or "")
-        assert "Maximum 50" in full_output or "50" in full_output or result.exit_code != 0
+            assert result.exit_code == 0
+            assert mock_instance.bulk_enrich.call_count == 2
+            # First batch: 50 IDs
+            first_call = mock_instance.bulk_enrich.call_args_list[0]
+            assert len(first_call[0][0]) == 50
+            # Second batch: 25 IDs
+            second_call = mock_instance.bulk_enrich.call_args_list[1]
+            assert len(second_call[0][0]) == 25
 
     def test_businesses_lookalike(self, runner: CliRunner, config_with_key: Path):
         """Test businesses lookalike."""
@@ -329,6 +341,34 @@ class TestProspectCommands:
             filters = call_args[0][0]
             assert "job_level" in filters
             assert "has_email" in filters
+
+    def test_prospects_search_with_file(self, runner: CliRunner, config_with_key: Path, tmp_path: Path):
+        """Test prospects search with CSV file of business IDs."""
+        csv_file = tmp_path / "businesses.csv"
+        csv_file.write_text("business_id\nbiz1\nbiz2\nbiz3\n")
+
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.return_value = {"status": "success", "data": []}
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "search",
+                    "-f", str(csv_file),
+                    "--job-level", "cxo,vp",
+                    "--has-email"
+                ]
+            )
+
+            assert result.exit_code == 0
+            mock_instance.search.assert_called_once()
+            call_args = mock_instance.search.call_args
+            filters = call_args[0][0]
+            assert "business_id" in filters
+            assert filters["business_id"]["values"] == ["biz1", "biz2", "biz3"]
 
     def test_prospects_enrich_contacts(self, runner: CliRunner, config_with_key: Path):
         """Test prospects enrich contacts."""
@@ -502,6 +542,61 @@ class TestOutputFormats:
             )
 
             assert result.exit_code == 0
+
+    def test_csv_output_format(self, runner: CliRunner, config_with_key: Path):
+        """Test CSV output format."""
+        with patch("explorium_cli.commands.businesses.BusinessesAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.return_value = {
+                "status": "success",
+                "data": [
+                    {"name": "Company A", "country": "US"},
+                    {"name": "Company B", "country": "CA"}
+                ]
+            }
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "-o", "csv",
+                    "businesses", "search", "--country", "us"
+                ]
+            )
+
+            assert result.exit_code == 0
+            # Check CSV structure
+            assert "country,name" in result.output or "name,country" in result.output
+            assert "Company A" in result.output
+            assert "Company B" in result.output
+            assert "US" in result.output
+            assert "CA" in result.output
+
+    def test_csv_output_with_complex_values(self, runner: CliRunner, config_with_key: Path):
+        """Test CSV output handles nested objects as JSON strings."""
+        with patch("explorium_cli.commands.businesses.BusinessesAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.return_value = {
+                "status": "success",
+                "data": [
+                    {"name": "Company A", "tags": ["tech", "saas"], "meta": {"id": 1}}
+                ]
+            }
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "-o", "csv",
+                    "businesses", "search", "--country", "us"
+                ]
+            )
+
+            assert result.exit_code == 0
+            # Complex values should be JSON-encoded
+            assert "Company A" in result.output
 
 
 class TestBusinessMatchBasedEnrichment:
@@ -980,3 +1075,106 @@ class TestErrorHandling:
             # Should handle error gracefully - error goes to stderr
             full_output = result.output + (result.stderr or "")
             assert result.exit_code != 0 or "Error" in full_output
+
+
+class TestBulkEnrichCSVFormat:
+    """Tests for bulk-enrich CSV file format requirements."""
+
+    def test_prospects_bulk_enrich_csv_file(self, runner: CliRunner, config_with_key: Path, tmp_path: Path):
+        """Test prospects bulk-enrich reads CSV with prospect_id column."""
+        csv_file = tmp_path / "prospects.csv"
+        csv_file.write_text("prospect_id,name,email\np1,John,john@example.com\np2,Jane,jane@example.com\n")
+
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.bulk_enrich.return_value = {"status": "success", "data": []}
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                ["--config", str(config_with_key), "prospects", "bulk-enrich", "-f", str(csv_file)]
+            )
+
+            assert result.exit_code == 0
+            mock_instance.bulk_enrich.assert_called_once()
+            call_args = mock_instance.bulk_enrich.call_args[0][0]
+            assert call_args == ["p1", "p2"]
+
+    def test_prospects_bulk_enrich_csv_missing_column_error(self, runner: CliRunner, config_with_key: Path, tmp_path: Path):
+        """Test prospects bulk-enrich error when prospect_id column is missing."""
+        csv_file = tmp_path / "bad.csv"
+        csv_file.write_text("name,email\nJohn,john@example.com\n")
+
+        result = runner.invoke(
+            cli,
+            ["--config", str(config_with_key), "prospects", "bulk-enrich", "-f", str(csv_file)]
+        )
+
+        assert result.exit_code != 0
+        full_output = result.output + (result.stderr or "")
+        assert "prospect_id" in full_output
+        assert "Found columns:" in full_output
+
+    def test_businesses_bulk_enrich_csv_file(self, runner: CliRunner, config_with_key: Path, tmp_path: Path):
+        """Test businesses bulk-enrich reads CSV with business_id column."""
+        csv_file = tmp_path / "businesses.csv"
+        csv_file.write_text("business_id,company_name\nb1,Acme\nb2,Globex\n")
+
+        with patch("explorium_cli.commands.businesses.BusinessesAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.bulk_enrich.return_value = {"status": "success", "data": []}
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                ["--config", str(config_with_key), "businesses", "bulk-enrich", "-f", str(csv_file)]
+            )
+
+            assert result.exit_code == 0
+            mock_instance.bulk_enrich.assert_called_once()
+            call_args = mock_instance.bulk_enrich.call_args[0][0]
+            assert call_args == ["b1", "b2"]
+
+    def test_businesses_bulk_enrich_csv_missing_column_error(self, runner: CliRunner, config_with_key: Path, tmp_path: Path):
+        """Test businesses bulk-enrich error when business_id column is missing."""
+        csv_file = tmp_path / "bad.csv"
+        csv_file.write_text("company_name,website\nAcme,acme.com\n")
+
+        result = runner.invoke(
+            cli,
+            ["--config", str(config_with_key), "businesses", "bulk-enrich", "-f", str(csv_file)]
+        )
+
+        assert result.exit_code != 0
+        full_output = result.output + (result.stderr or "")
+        assert "business_id" in full_output
+        assert "Found columns:" in full_output
+
+    def test_prospects_bulk_enrich_batches_over_50_from_file(self, runner: CliRunner, config_with_key: Path, tmp_path: Path):
+        """Test prospects bulk-enrich auto-batches file with >50 IDs."""
+        # Create CSV with 75 prospect IDs
+        csv_content = "prospect_id,name\n" + "\n".join([f"p{i},Name{i}" for i in range(75)])
+        csv_file = tmp_path / "prospects.csv"
+        csv_file.write_text(csv_content)
+
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.bulk_enrich.side_effect = [
+                {"status": "success", "data": [{"id": f"p{i}"} for i in range(50)]},
+                {"status": "success", "data": [{"id": f"p{i}"} for i in range(50, 75)]}
+            ]
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                ["--config", str(config_with_key), "prospects", "bulk-enrich", "-f", str(csv_file)]
+            )
+
+            assert result.exit_code == 0
+            assert mock_instance.bulk_enrich.call_count == 2
+            # First batch: 50 IDs
+            first_call = mock_instance.bulk_enrich.call_args_list[0]
+            assert len(first_call[0][0]) == 50
+            # Second batch: 25 IDs
+            second_call = mock_instance.bulk_enrich.call_args_list[1]
+            assert len(second_call[0][0]) == 25

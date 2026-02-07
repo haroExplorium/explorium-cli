@@ -14,12 +14,18 @@ from explorium_cli.api.client import ExploriumAPI
 )
 @click.option(
     "--output", "-o",
-    type=click.Choice(["json", "table"]),
+    type=click.Choice(["json", "table", "csv"]),
     default=None,
     help="Output format (default: json)"
 )
+@click.option(
+    "--output-file",
+    type=click.Path(),
+    default=None,
+    help="Write output to file (clean JSON/CSV, no formatting)"
+)
 @click.pass_context
-def cli(ctx: click.Context, config: str, output: str) -> None:
+def cli(ctx: click.Context, config: str, output: str, output_file: str) -> None:
     """Explorium API CLI - interact with all Explorium endpoints."""
     ctx.ensure_object(dict)
 
@@ -29,6 +35,9 @@ def cli(ctx: click.Context, config: str, output: str) -> None:
 
     # Set output format (CLI option > config > default)
     ctx.obj["output"] = output or cfg.get("default_output", "json")
+
+    # Store output file path
+    ctx.obj["output_file"] = output_file
 
     # Create API client if we have an API key
     if cfg.get("api_key"):

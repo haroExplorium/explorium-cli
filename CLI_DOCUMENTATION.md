@@ -18,7 +18,8 @@ These options apply to all commands and **must be placed BEFORE the command**:
 
 | Option | Description |
 |--------|-------------|
-| `-o, --output` | Output format: `json` (default) or `table` |
+| `-o, --output` | Output format: `json` (default), `table`, or `csv` |
+| `--output-file PATH` | Write output to file (clean JSON/CSV, no formatting) |
 | `-c, --config` | Path to config file (default: `~/.explorium/config.yaml`) |
 | `--help` | Show help message |
 
@@ -26,6 +27,9 @@ These options apply to all commands and **must be placed BEFORE the command**:
 ```bash
 # Correct - global option before command
 explorium -o table businesses search --country us
+
+# Write output to file (clean JSON/CSV, no formatting)
+explorium --output-file results.json businesses search --country us
 
 # Wrong - will fail
 explorium businesses search --country us -o table
@@ -35,16 +39,28 @@ explorium businesses search --country us -o table
 
 ## Configuration Commands
 
-### `explorium config set`
+### `explorium config init`
 
-Set configuration values.
+Initialize configuration with your API key.
 
 ```bash
-# Set API key (required for all API operations)
-explorium config set --api-key YOUR_API_KEY
+# Set up your API key
+explorium config init --api-key YOUR_API_KEY
+```
 
-# Set custom API URL
-explorium config set --api-url https://api.explorium.ai
+### `explorium config set`
+
+Set configuration values (positional KEY VALUE arguments).
+
+```bash
+# Set default output format
+explorium config set default_output table
+
+# Set default page size
+explorium config set default_page_size 50
+
+# Set base URL
+explorium config set base_url https://api.explorium.ai/v1
 ```
 
 ### `explorium config show`
@@ -53,14 +69,6 @@ Display current configuration.
 
 ```bash
 explorium config show
-```
-
-### `explorium config clear`
-
-Clear all configuration.
-
-```bash
-explorium config clear
 ```
 
 ---
@@ -83,6 +91,18 @@ explorium businesses match --linkedin "https://linkedin.com/company/salesforce"
 
 # Batch match from JSON file
 explorium businesses match --file companies.json
+
+# Batch match from CSV file
+explorium businesses match --file companies.csv
+
+# Show match statistics
+explorium businesses match --file companies.csv --summary
+
+# Output only matched IDs (one per line, pipeable)
+explorium businesses match --file companies.csv --ids-only
+
+# Override output format for this command
+explorium businesses match --file companies.csv --format csv
 ```
 
 ### `explorium businesses search`
@@ -107,6 +127,9 @@ explorium businesses search --tech "Python,AWS"
 
 # Combined filters with pagination
 explorium businesses search --country us --size "51-200" --page 1 --page-size 50
+
+# Auto-paginate to collect a specific total
+explorium businesses search --country us --total 500
 ```
 
 **Size ranges:** `1-10`, `11-50`, `51-200`, `201-500`, `501-1000`, `1001-5000`, `5001-10000`, `10001+`
@@ -279,7 +302,53 @@ explorium businesses bulk-enrich --match-file companies_to_enrich.json
 
 # With lower confidence threshold
 explorium businesses bulk-enrich --match-file companies_to_enrich.json --min-confidence 0.6
+
+# Show match/enrichment statistics
+explorium businesses bulk-enrich --match-file companies_to_enrich.json --summary
+
+# Override output format
+explorium businesses bulk-enrich --ids "id1,id2" --format csv
 ```
+
+### `explorium businesses enrich-file`
+
+Match businesses from a file and enrich in one pass. Accepts CSV or JSON files with match parameters — no need to match first then bulk-enrich separately.
+
+```bash
+# From CSV file
+explorium businesses enrich-file -f companies.csv
+
+# From JSON file
+explorium businesses enrich-file -f companies.json
+
+# With lower confidence threshold
+explorium businesses enrich-file -f companies.csv --min-confidence 0.6
+
+# Show match statistics
+explorium businesses enrich-file -f companies.csv --summary
+
+# Override output format
+explorium businesses enrich-file -f companies.csv --format csv
+```
+
+**CSV file format (`companies.csv`):**
+```csv
+name,domain
+Salesforce,salesforce.com
+HubSpot,hubspot.com
+Zendesk,zendesk.com
+```
+
+**JSON file format (`companies.json`):**
+```json
+[
+  {"name": "Salesforce", "domain": "salesforce.com"},
+  {"name": "HubSpot"},
+  {"domain": "zendesk.com"}
+]
+```
+
+Partial match failures are reported as warnings — successfully matched businesses are still enriched.
 
 ### `explorium businesses lookalike`
 
@@ -335,12 +404,57 @@ explorium businesses events enrollments
 Match prospects to get unique prospect IDs.
 
 ```bash
-# Match by LinkedIn URL
+# Match by first/last name + company (most common)
+explorium prospects match --first-name "Sally" --last-name "Massey" --company-name "Colgate-Palmolive"
+
+# Match by LinkedIn URL (name is optional when linkedin/email is provided)
 explorium prospects match --linkedin "https://www.linkedin.com/in/brigittaruha/"
 
-# Match by name and company
-explorium prospects match --first-name "Sally" --last-name "Massey" --company-name "Colgate-Palmolive"
+# Match by email
+explorium prospects match --email "brigitta.ruha@example.com"
+
+# Batch match from JSON or CSV file (auto-batches if >50 rows)
+explorium prospects match -f prospects.json
+explorium prospects match -f prospects.csv
+
+# Show match statistics
+explorium prospects match -f prospects.csv --summary
+
+# Output only matched IDs (one per line, pipeable)
+explorium prospects match -f prospects.csv --ids-only
+
+# Override output format for this command
+explorium prospects match -f prospects.csv --format csv
 ```
+
+**Match file formats** — use `full_name` + `company_name` for best results:
+
+```csv
+full_name,company_name
+Satya Nadella,Microsoft
+Marc Benioff,Salesforce
+Tim Cook,Apple
+```
+
+Or with separate first/last name columns:
+```csv
+first_name,last_name,company_name
+Satya,Nadella,Microsoft
+Marc,Benioff,Salesforce
+```
+
+JSON format:
+```json
+[
+  {"full_name": "Satya Nadella", "company_name": "Microsoft"},
+  {"full_name": "Marc Benioff", "company_name": "Salesforce"},
+  {"linkedin": "https://linkedin.com/in/sundarpichai"}
+]
+```
+
+> **Tip:** When a strong identifier (`linkedin` or `email`) is present, `full_name` is optional.
+> When using name-based matching, always include `company_name` — the API needs company
+> context to disambiguate common names.
 
 ### `explorium prospects search`
 
@@ -361,6 +475,12 @@ explorium prospects search --business-id c71497b026909c74b4ab3a4fbfcd122a --has-
 
 # Combined filters with pagination
 explorium prospects search --business-id 1006ff12c465532f8c574aeaa4461b16 --job-level cxo --page 1 --page-size 25
+
+# Auto-paginate to collect a specific total
+explorium prospects search --business-id 1006ff12c465532f8c574aeaa4461b16 --total 200
+
+# Search from CSV file (with business_id column)
+explorium prospects search -f business_ids.csv
 ```
 
 ### `explorium prospects enrich`
@@ -434,8 +554,90 @@ Then run:
 # Bulk enrich by resolving names/linkedin to IDs automatically
 explorium prospects bulk-enrich --match-file prospects_to_enrich.json
 
+# Choose enrichment type (contacts, profile, all)
+explorium prospects bulk-enrich --ids "id1,id2" --types profile
+explorium prospects bulk-enrich --match-file prospects_to_enrich.json --types all
+
 # With lower confidence threshold
 explorium prospects bulk-enrich --match-file prospects_to_enrich.json --min-confidence 0.6
+
+# Show match/enrichment statistics
+explorium prospects bulk-enrich --match-file prospects_to_enrich.json --summary
+
+# Override output format
+explorium prospects bulk-enrich --ids "id1,id2" --format csv
+```
+
+### `explorium prospects enrich-file`
+
+Match prospects from a file and enrich in one pass. Accepts CSV or JSON files with match parameters — no need to match first then bulk-enrich separately.
+
+```bash
+# From CSV file (default enrichment: contacts)
+explorium prospects enrich-file -f prospects.csv
+
+# From JSON file
+explorium prospects enrich-file -f prospects.json
+
+# Choose enrichment type (comma-separated: contacts, profile, all)
+explorium prospects enrich-file -f prospects.csv --types profile
+explorium prospects enrich-file -f prospects.csv --types all
+explorium prospects enrich-file -f prospects.csv --types contacts,profile
+
+# With lower confidence threshold
+explorium prospects enrich-file -f prospects.csv --min-confidence 0.6
+
+# Show match statistics
+explorium prospects enrich-file -f prospects.csv --summary
+
+# Override output format
+explorium prospects enrich-file -f prospects.csv --format csv
+```
+
+**CSV file format (`prospects.csv`):**
+```csv
+first_name,last_name,company_name
+Satya,Nadella,Microsoft
+Marc,Benioff,Salesforce
+Tim,Cook,Apple
+```
+
+**JSON file format (`prospects.json`):**
+```json
+[
+  {"full_name": "Satya Nadella", "company_name": "Microsoft"},
+  {"full_name": "Marc Benioff", "company_name": "Salesforce"},
+  {"linkedin": "https://linkedin.com/in/sundarpichai"}
+]
+```
+
+**Enrichment types (comma-separated):**
+
+| `--types` | Description |
+|-----------|-------------|
+| `contacts` | Emails, phone numbers (default) |
+| `profile` | Professional profile, skills, experience |
+| `all` | Contacts + social + profiles combined |
+| `contacts,profile` | Run both contacts and profile enrichment |
+
+Partial match failures are reported as warnings — successfully matched prospects are still enriched.
+
+### `explorium prospects autocomplete`
+
+Get prospect name suggestions.
+
+```bash
+explorium prospects autocomplete --query "john"
+```
+
+### `explorium prospects statistics`
+
+Get aggregated insights about prospects.
+
+```bash
+explorium prospects statistics \
+  --business-id "1006ff12c465532f8c574aeaa4461b16" \
+  --group-by "department,job_level"
 ```
 
 ### Prospect Events
@@ -475,6 +677,45 @@ explorium webhooks delete --partner-id YOUR_PARTNER_ID
 
 ---
 
+## Output to File
+
+Use `--output-file` to write clean data to a file instead of the terminal. File output contains no Rich formatting or ANSI codes.
+
+```bash
+# Write JSON to file
+explorium --output-file results.json businesses search --country us
+
+# Write CSV to file
+explorium -o csv --output-file results.csv businesses search --country us
+
+# Table format falls back to JSON when writing to file
+explorium -o table --output-file results.json businesses search --country us
+```
+
+A confirmation message is printed to stderr: `Output written to: results.json`
+
+---
+
+## Match Statistics
+
+Use `--summary` on match, bulk-enrich, and enrich-file commands to print match statistics to stderr.
+
+```bash
+# Match with summary
+explorium prospects match -f prospects.csv --summary
+# Stderr: Matched: 77/88, Failed: 11
+
+# Bulk enrich with summary
+explorium businesses bulk-enrich --match-file companies.json --summary
+# Stderr: Matched: 45/50, Failed: 5
+
+# Enrich file with summary
+explorium prospects enrich-file -f prospects.csv --summary
+# Stderr: Matched: 23/25, Failed: 2
+```
+
+---
+
 ## Output Formats
 
 ```bash
@@ -493,7 +734,7 @@ Default location: `~/.explorium/config.yaml`
 
 ```yaml
 api_key: your-api-key-here
-api_url: https://api.explorium.ai
+base_url: https://api.explorium.ai/v1
 ```
 
 Use custom config:
@@ -527,6 +768,7 @@ explorium -c /path/to/config.yaml businesses search --country us
 | `businesses enrich-hierarchy` | Enrich with company hierarchy |
 | `businesses enrich-intent` | Enrich with Bombora intent |
 | `businesses bulk-enrich` | Bulk enrich businesses |
+| `businesses enrich-file` | Match + enrich from CSV/JSON file |
 | `businesses lookalike` | Find similar companies |
 | `businesses autocomplete` | Company name suggestions |
 | `businesses events list/enroll/enrollments` | Event operations |
@@ -534,6 +776,7 @@ explorium -c /path/to/config.yaml businesses search --country us
 | `prospects search` | Search/filter prospects |
 | `prospects enrich contacts/social/profile` | Enrich prospects |
 | `prospects bulk-enrich` | Bulk enrich prospects |
+| `prospects enrich-file` | Match + enrich from CSV/JSON file |
 | `prospects events list/enroll/enrollments` | Event operations |
 | `webhooks create/get/update/delete` | Webhook management (partner access) |
 
@@ -560,6 +803,7 @@ All enrichment commands support **match-based enrichment** - you can enrich with
 | `--id` | Direct prospect ID (skips matching) |
 | `--first-name` | First name for matching |
 | `--last-name` | Last name for matching |
+| `--email` | Email address for matching |
 | `--linkedin` | LinkedIn profile URL for matching |
 | `--company-name` | Company name for matching |
 | `--min-confidence` | Minimum match confidence (0-1, default: 0.8) |
@@ -579,4 +823,78 @@ explorium prospects enrich profile --linkedin "https://linkedin.com/in/marcbenio
 # Bulk enrichment with match file
 explorium businesses bulk-enrich --match-file companies.json
 explorium prospects bulk-enrich --match-file prospects.json
+
+# One-pass file enrichment (match + enrich combined)
+explorium businesses enrich-file -f companies.csv
+explorium prospects enrich-file -f prospects.csv --types all
+```
+
+---
+
+## CSV Column Names
+
+When using CSV files for `match`, `enrich-file`, or other file-based commands, column names are matched **case-insensitively** and support common aliases. If no recognized columns are found, the CLI shows an error listing expected column names.
+
+### Business CSV Columns
+
+| Canonical Name | Also Accepted |
+|---------------|---------------|
+| `name` | `company_name`, `company`, `business_name` |
+| `domain` | `website`, `url`, `company_domain`, `company_website`, `site` |
+| `linkedin_url` | `linkedin`, `linkedin_company_url`, `company_linkedin` |
+
+### Prospect CSV Columns
+
+| Canonical Name | Also Accepted |
+|---------------|---------------|
+| `first_name` | `firstname`, `first` |
+| `last_name` | `lastname`, `last`, `surname` |
+| `full_name` | `name`, `fullname`, `prospect_name` |
+| `email` | `email_address`, `e-mail`, `e_mail` |
+| `linkedin` | `linkedin_url`, `linkedin_profile` |
+| `company_name` | `company`, `employer`, `organization` |
+
+**Note:** When matching prospects, `full_name` is automatically omitted from the API payload when a strong identifier (`linkedin` or `email`) is present but `company_name` is absent. The API cannot use a name without company context when a direct identifier is available.
+
+**Example:** A CSV with columns `Company,Website` will work the same as `name,domain`.
+
+If no recognized columns are found, you'll see an error like:
+```
+Error: No recognized business columns found in CSV.
+Found columns: foo, bar, baz
+Expected columns (or aliases):
+  name (also: company_name, company, business_name)
+  domain (also: website, url, company_domain, company_website, site)
+  linkedin_url (also: linkedin, linkedin_company_url, company_linkedin)
+```
+
+### ID Column Matching
+
+When using CSV files with `bulk-enrich` (via `--file`), the `prospect_id` and `business_id` columns are also matched **case-insensitively**. So `PROSPECT_ID`, `Prospect_Id`, and `prospect_id` all work.
+
+## Pipeline: Match → Bulk-Enrich
+
+The `--ids-only` and `--format csv` flags on `match` make it easy to pipe match results directly into `bulk-enrich`:
+
+```bash
+# Option 1: --ids-only outputs just IDs, one per line
+explorium prospects match -f leads.csv --ids-only > prospect_ids.txt
+explorium prospects bulk-enrich -f prospect_ids.txt
+
+# Option 2: --format csv outputs a full CSV with prospect_id column
+explorium businesses match -f companies.csv --format csv > matched.csv
+explorium businesses bulk-enrich -f matched.csv
+```
+
+## Subcommand `--format` Option
+
+The `match`, `bulk-enrich`, and `enrich-file` commands accept a `--format` option that overrides the global `-o` output format:
+
+```bash
+# Global output is JSON, but this specific command outputs CSV
+explorium -o json prospects match --email "john@co.com" --format csv
+
+# Available formats: json, table, csv
+explorium businesses bulk-enrich --ids "id1,id2" --format table
+explorium prospects enrich-file -f leads.csv --format csv
 ```

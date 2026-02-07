@@ -130,6 +130,37 @@ class ProspectsAPI:
 
         return self.client.post("/prospects/contacts_information/bulk_enrich", json=payload)
 
+    def bulk_enrich_profiles(self, prospect_ids: list[str]) -> dict:
+        """
+        Bulk enrich multiple prospects (up to 50) with professional profile data.
+
+        Args:
+            prospect_ids: List of prospect IDs to enrich.
+
+        Returns:
+            API response with enriched prospect profiles.
+        """
+        return self.client.post(
+            "/prospects/profiles/bulk_enrich",
+            json={"prospect_ids": prospect_ids}
+        )
+
+    def bulk_enrich_all(self, prospect_ids: list[str]) -> dict:
+        """
+        Bulk enrich multiple prospects (up to 50) with all available data
+        (contacts, social, and profiles).
+
+        Args:
+            prospect_ids: List of prospect IDs to enrich.
+
+        Returns:
+            API response with fully enriched prospects.
+        """
+        return self.client.post(
+            "/prospects/enrich/bulk",
+            json={"prospect_ids": prospect_ids}
+        )
+
     def autocomplete(self, query: str) -> dict:
         """
         Get autocomplete suggestions for prospect names.
