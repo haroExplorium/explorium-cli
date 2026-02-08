@@ -648,3 +648,34 @@ class TestExploriumAPIRetry:
             result = api.get("/test")
             assert result == {"status": "success"}
             assert mock_req.call_count == 4  # Initial + 3 retries
+
+    def test_unexpected_exception_wrapped_as_api_error(self):
+        """Test that unexpected exceptions (e.g., JSONDecodeError) are wrapped as APIError."""
+        api = ExploriumAPI(api_key="test_key", max_retries=0, retry_delay=0.01)
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status.return_value = None
+        # Simulate response.json() raising an unexpected error
+        mock_response.json.side_effect = ValueError("No JSON object could be decoded")
+
+        with patch.object(api.session, "request", return_value=mock_response):
+            with pytest.raises(APIError) as exc_info:
+                api.get("/test")
+            assert "Unexpected error" in exc_info.value.message
+
+    def test_raw_http_error_wrapped_as_api_error(self):
+        """Test that a raw HTTPError that somehow bypasses specific handlers is wrapped."""
+        api = ExploriumAPI(api_key="test_key", max_retries=0, retry_delay=0.01)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+
+        # Simulate raise_for_status raising, but response.json() also failing
+        http_error = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = http_error
+        mock_response.json.return_value = {"error": "Unprocessable Entity"}
+
+        with patch.object(api.session, "request", return_value=mock_response):
+            with pytest.raises(APIError) as exc_info:
+                api.get("/test")
+            assert exc_info.value.status_code == 422

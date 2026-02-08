@@ -341,8 +341,6 @@ def batched_match(
     Returns:
         Combined response with all matched results and _match_meta statistics.
     """
-    from explorium_cli.api.client import APIError
-
     total = len(items)
     if total <= batch_size:
         last_error = None
@@ -362,14 +360,15 @@ def batched_match(
                 result["_match_meta"] = _build_match_meta(matched, total, id_key)
                 return result
 
-            except APIError as e:
-                last_error = e
+            except Exception as e:
+                api_err = _wrap_as_api_error(e)
+                last_error = api_err
                 if _is_retryable_api_error(e) and retry_attempt < BATCH_RETRY_MAX:
                     if show_progress:
                         click.echo(
                             click.style(
                                 f"  ⟳ Batch retry {retry_attempt + 1}/{BATCH_RETRY_MAX} "
-                                f"after {e.status_code} (waiting {delay:.0f}s)...",
+                                f"after {api_err.status_code} (waiting {delay:.0f}s)...",
                                 fg="yellow",
                             ),
                             err=True,
@@ -377,7 +376,7 @@ def batched_match(
                     time.sleep(delay)
                     delay *= BATCH_RETRY_BACKOFF
                     continue
-                raise
+                raise api_err
 
         raise last_error
 
@@ -419,14 +418,15 @@ def batched_match(
                 last_error = None
                 break
 
-            except APIError as e:
-                last_error = e
+            except Exception as e:
+                api_err = _wrap_as_api_error(e)
+                last_error = api_err
                 if _is_retryable_api_error(e) and retry_attempt < BATCH_RETRY_MAX:
                     if show_progress:
                         click.echo(
                             click.style(
                                 f"  ⟳ Batch retry {retry_attempt + 1}/{BATCH_RETRY_MAX} "
-                                f"after {e.status_code} (waiting {delay:.0f}s)...",
+                                f"after {api_err.status_code} (waiting {delay:.0f}s)...",
                                 fg="yellow",
                             ),
                             err=True,
@@ -439,7 +439,7 @@ def batched_match(
                 error_count += len(batch)
                 if show_progress:
                     click.echo(
-                        click.style(f"  ✗ Error: {e.message}", fg="red"),
+                        click.style(f"  ✗ Error: {api_err.message}", fg="red"),
                         err=True
                     )
                     if all_matched:
@@ -476,12 +476,46 @@ BATCH_RETRY_BASE_DELAY = 5.0
 BATCH_RETRY_BACKOFF = 2.0
 
 
+RETRYABLE_STATUS_CODES = {422, 429, 500, 502, 503, 504}
+
+
 def _is_retryable_api_error(error: Exception) -> bool:
-    """Check if an APIError is retryable at the batch level (e.g. transient 422)."""
+    """Check if an error is retryable at the batch level.
+
+    Handles both APIError (normal path) and raw requests.exceptions.HTTPError
+    (in case the HTTP client fails to wrap the exception).
+    """
+    import requests
     from explorium_cli.api.client import APIError
-    if isinstance(error, APIError) and error.status_code in {422, 429, 500, 502, 503, 504}:
+
+    if isinstance(error, APIError) and error.status_code in RETRYABLE_STATUS_CODES:
         return True
+    if isinstance(error, requests.exceptions.HTTPError):
+        if error.response is not None:
+            return error.response.status_code in RETRYABLE_STATUS_CODES
     return False
+
+
+def _wrap_as_api_error(error: Exception) -> Any:
+    """Wrap a raw exception as APIError if it isn't one already."""
+    import requests
+    from explorium_cli.api.client import APIError
+
+    if isinstance(error, APIError):
+        return error
+    if isinstance(error, requests.exceptions.HTTPError):
+        status_code = error.response.status_code if error.response is not None else None
+        error_response = None
+        try:
+            error_response = error.response.json()
+        except (ValueError, AttributeError):
+            pass
+        return APIError(
+            f"API request failed: {error}",
+            status_code=status_code,
+            response=error_response,
+        )
+    return APIError(f"Unexpected error: {error}")
 
 
 def batched_enrich(
@@ -509,8 +543,6 @@ def batched_enrich(
     Raises:
         click.Abort: If any batch fails after all retries
     """
-    from explorium_cli.api.client import APIError
-
     total_ids = len(ids)
     num_batches = math.ceil(total_ids / batch_size)
 
@@ -557,14 +589,15 @@ def batched_enrich(
                 last_error = None
                 break
 
-            except APIError as e:
-                last_error = e
+            except Exception as e:
+                api_err = _wrap_as_api_error(e)
+                last_error = api_err
                 if _is_retryable_api_error(e) and retry_attempt < BATCH_RETRY_MAX:
                     if show_progress:
                         click.echo(
                             click.style(
                                 f"  ⟳ Batch retry {retry_attempt + 1}/{BATCH_RETRY_MAX} "
-                                f"after {e.status_code} (waiting {delay:.0f}s)...",
+                                f"after {api_err.status_code} (waiting {delay:.0f}s)...",
                                 fg="yellow",
                             ),
                             err=True,
@@ -576,7 +609,7 @@ def batched_enrich(
                 # Non-retryable or retries exhausted
                 if show_progress:
                     click.echo(
-                        click.style(f" ✗ Error: {e.message}", fg="red"),
+                        click.style(f" ✗ Error: {api_err.message}", fg="red"),
                         err=True
                     )
                     if successful_count > 0:

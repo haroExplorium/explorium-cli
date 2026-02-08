@@ -148,6 +148,11 @@ class ExploriumAPI:
             except requests.exceptions.RequestException as e:
                 raise APIError(f"Request failed: {e}")
 
+            except Exception as e:
+                # Catch-all: wrap any unexpected exception as APIError
+                # so callers only need to handle APIError
+                raise APIError(f"Unexpected error: {e}")
+
             # Wait before retrying with exponential backoff
             time.sleep(delay)
             delay *= self.retry_backoff
