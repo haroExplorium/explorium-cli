@@ -2,9 +2,20 @@
 
 import csv
 import math
+import time
 from typing import Any, Callable, TextIO
 
 import click
+
+
+def normalize_linkedin_url(url: str | None) -> str | None:
+    """Prepend https:// if scheme is missing. Handles linkedin.com and www.linkedin.com."""
+    if not url:
+        return url
+    lower = url.lower()
+    if lower.startswith("http://") or lower.startswith("https://"):
+        return url
+    return f"https://{url}"
 
 
 # Column name aliases: canonical_name -> list of accepted alternatives
@@ -183,7 +194,7 @@ def parse_csv_business_match_params(file: TextIO) -> list[dict]:
         if domain_val:
             entry["domain"] = domain_val
 
-        linkedin_val = _get_mapped_value(row, "linkedin_url", mapping)
+        linkedin_val = normalize_linkedin_url(_get_mapped_value(row, "linkedin_url", mapping))
         if linkedin_val:
             entry["linkedin_url"] = linkedin_val
 
@@ -236,7 +247,7 @@ def parse_csv_prospect_match_params(file: TextIO) -> list[dict]:
         full_name = _get_mapped_value(row, "full_name", mapping)
 
         email_val = _get_mapped_value(row, "email", mapping)
-        linkedin_val = _get_mapped_value(row, "linkedin", mapping)
+        linkedin_val = normalize_linkedin_url(_get_mapped_value(row, "linkedin", mapping))
         company_val = _get_mapped_value(row, "company_name", mapping)
 
         # Strip full_name when a strong identifier (linkedin/email) is present
@@ -264,6 +275,19 @@ def parse_csv_prospect_match_params(file: TextIO) -> list[dict]:
             entry["company_name"] = company_val
 
         if entry:
+            has_only_name = (
+                "full_name" in entry
+                and "email" not in entry
+                and "linkedin" not in entry
+                and "company_name" not in entry
+            )
+            if has_only_name:
+                click.echo(
+                    f"Warning: Skipping '{entry.get('full_name')}' — "
+                    f"name requires company_name, email, or linkedin for matching",
+                    err=True,
+                )
+                continue
             prospects.append(entry)
 
     if not prospects:
@@ -272,13 +296,32 @@ def parse_csv_prospect_match_params(file: TextIO) -> list[dict]:
     return prospects
 
 
+def _build_match_meta(
+    all_matched: list[dict], total_input: int, id_key: str, error_count: int = 0
+) -> dict:
+    """Build _match_meta dict with match statistics."""
+    if id_key:
+        found = sum(1 for r in all_matched if r.get(id_key))
+        not_found = len(all_matched) - found
+    else:
+        found, not_found = len(all_matched), 0
+    return {
+        "total_input": total_input,
+        "matched": found,
+        "not_found": not_found,
+        "errors": error_count,
+    }
+
+
 def batched_match(
     api_method: Callable[..., dict],
     items: list[dict],
     result_key: str,
+    id_key: str = "",
     batch_size: int = 50,
     entity_name: str = "records",
     show_progress: bool = True,
+    preserve_input: bool = False,
 ) -> dict:
     """
     Match items in batches, combining results.
@@ -288,21 +331,59 @@ def batched_match(
         items: List of dicts with match parameters
         result_key: Key in API response containing match results
                     (e.g., "matched_prospects", "matched_businesses")
+        id_key: Key in result rows that holds the entity ID (e.g., "prospect_id").
+                When set, _match_meta tracks found vs not-found counts.
         batch_size: Max items per API call (default: 50)
         entity_name: Name for progress messages (e.g., "prospects")
         show_progress: Whether to show progress to stderr
+        preserve_input: When True, merge input columns into result rows with input_ prefix.
 
     Returns:
-        Combined response with all matched results
+        Combined response with all matched results and _match_meta statistics.
     """
     from explorium_cli.api.client import APIError
 
     total = len(items)
     if total <= batch_size:
-        return api_method(items)
+        last_error = None
+        delay = BATCH_RETRY_BASE_DELAY
+
+        for retry_attempt in range(BATCH_RETRY_MAX + 1):
+            try:
+                result = api_method(items)
+                matched = result.get(result_key) or result.get("data", [])
+                if not isinstance(matched, list):
+                    matched = []
+                if preserve_input:
+                    for j, match_row in enumerate(matched):
+                        if j < len(items):
+                            for k, v in items[j].items():
+                                match_row[f"input_{k}"] = v
+                result["_match_meta"] = _build_match_meta(matched, total, id_key)
+                return result
+
+            except APIError as e:
+                last_error = e
+                if _is_retryable_api_error(e) and retry_attempt < BATCH_RETRY_MAX:
+                    if show_progress:
+                        click.echo(
+                            click.style(
+                                f"  ⟳ Batch retry {retry_attempt + 1}/{BATCH_RETRY_MAX} "
+                                f"after {e.status_code} (waiting {delay:.0f}s)...",
+                                fg="yellow",
+                            ),
+                            err=True,
+                        )
+                    time.sleep(delay)
+                    delay *= BATCH_RETRY_BACKOFF
+                    continue
+                raise
+
+        raise last_error
 
     num_batches = math.ceil(total / batch_size)
     all_matched: list[dict] = []
+    error_count = 0
 
     for batch_num in range(num_batches):
         start = batch_num * batch_size
@@ -315,34 +396,92 @@ def batched_match(
                 err=True
             )
 
-        try:
-            result = api_method(batch)
-            matched = result.get(result_key) or result.get("data", [])
-            if isinstance(matched, list):
-                all_matched.extend(matched)
+        last_error = None
+        delay = BATCH_RETRY_BASE_DELAY
 
+        for retry_attempt in range(BATCH_RETRY_MAX + 1):
+            try:
+                result = api_method(batch)
+                matched = result.get(result_key) or result.get("data", [])
+                if isinstance(matched, list):
+                    if preserve_input:
+                        for j, match_row in enumerate(matched):
+                            if j < len(batch):
+                                for k, v in batch[j].items():
+                                    match_row[f"input_{k}"] = v
+                    all_matched.extend(matched)
+
+                if show_progress:
+                    click.echo(
+                        click.style(f"  ✓ {len(matched)} matched", fg="green"),
+                        err=True
+                    )
+                last_error = None
+                break
+
+            except APIError as e:
+                last_error = e
+                if _is_retryable_api_error(e) and retry_attempt < BATCH_RETRY_MAX:
+                    if show_progress:
+                        click.echo(
+                            click.style(
+                                f"  ⟳ Batch retry {retry_attempt + 1}/{BATCH_RETRY_MAX} "
+                                f"after {e.status_code} (waiting {delay:.0f}s)...",
+                                fg="yellow",
+                            ),
+                            err=True,
+                        )
+                    time.sleep(delay)
+                    delay *= BATCH_RETRY_BACKOFF
+                    continue
+
+                # Non-retryable or retries exhausted
+                error_count += len(batch)
+                if show_progress:
+                    click.echo(
+                        click.style(f"  ✗ Error: {e.message}", fg="red"),
+                        err=True
+                    )
+                    if all_matched:
+                        click.echo(
+                            f"Matched {len(all_matched)} {entity_name} before error.",
+                            err=True
+                        )
+                raise click.Abort()
+
+        if last_error is not None:
+            error_count += len(batch)
             if show_progress:
                 click.echo(
-                    click.style(f"  ✓ {len(matched)} matched", fg="green"),
-                    err=True
-                )
-        except APIError as e:
-            if show_progress:
-                click.echo(
-                    click.style(f"  ✗ Error: {e.message}", fg="red"),
-                    err=True
+                    click.style(f"  ✗ Error: {last_error.message}", fg="red"),
+                    err=True,
                 )
                 if all_matched:
                     click.echo(
                         f"Matched {len(all_matched)} {entity_name} before error.",
-                        err=True
+                        err=True,
                     )
             raise click.Abort()
 
     if show_progress:
         click.echo(f"Matched {len(all_matched)}/{total} {entity_name} total", err=True)
 
-    return {result_key: all_matched}
+    result_dict = {result_key: all_matched}
+    result_dict["_match_meta"] = _build_match_meta(all_matched, total, id_key, error_count)
+    return result_dict
+
+
+BATCH_RETRY_MAX = 3
+BATCH_RETRY_BASE_DELAY = 5.0
+BATCH_RETRY_BACKOFF = 2.0
+
+
+def _is_retryable_api_error(error: Exception) -> bool:
+    """Check if an APIError is retryable at the batch level (e.g. transient 422)."""
+    from explorium_cli.api.client import APIError
+    if isinstance(error, APIError) and error.status_code in {422, 429, 500, 502, 503, 504}:
+        return True
+    return False
 
 
 def batched_enrich(
@@ -368,7 +507,7 @@ def batched_enrich(
         Combined response with all enriched data from all batches
 
     Raises:
-        click.Abort: If any batch fails
+        click.Abort: If any batch fails after all retries
     """
     from explorium_cli.api.client import APIError
 
@@ -390,38 +529,73 @@ def batched_enrich(
                 err=True
             )
 
-        try:
-            result = api_method(batch_ids, **api_kwargs)
+        last_error = None
+        delay = BATCH_RETRY_BASE_DELAY
 
-            # Extract data from response
-            if isinstance(result, dict):
-                if "data" in result:
-                    data = result["data"]
-                    if isinstance(data, list):
-                        all_data.extend(data)
+        for retry_attempt in range(BATCH_RETRY_MAX + 1):
+            try:
+                result = api_method(batch_ids, **api_kwargs)
+
+                # Extract data from response
+                if isinstance(result, dict):
+                    if "data" in result:
+                        data = result["data"]
+                        if isinstance(data, list):
+                            all_data.extend(data)
+                        else:
+                            all_data.append(data)
                     else:
-                        all_data.append(data)
-                else:
-                    all_data.append(result)
+                        all_data.append(result)
 
-            successful_count += batch_count
+                successful_count += batch_count
 
-            if show_progress and num_batches > 1:
-                click.echo(
-                    click.style(" ✓", fg="green"),
-                    err=True
-                )
+                if show_progress and num_batches > 1:
+                    click.echo(
+                        click.style(" ✓", fg="green"),
+                        err=True
+                    )
+                last_error = None
+                break
 
-        except APIError as e:
+            except APIError as e:
+                last_error = e
+                if _is_retryable_api_error(e) and retry_attempt < BATCH_RETRY_MAX:
+                    if show_progress:
+                        click.echo(
+                            click.style(
+                                f"  ⟳ Batch retry {retry_attempt + 1}/{BATCH_RETRY_MAX} "
+                                f"after {e.status_code} (waiting {delay:.0f}s)...",
+                                fg="yellow",
+                            ),
+                            err=True,
+                        )
+                    time.sleep(delay)
+                    delay *= BATCH_RETRY_BACKOFF
+                    continue
+
+                # Non-retryable or retries exhausted
+                if show_progress:
+                    click.echo(
+                        click.style(f" ✗ Error: {e.message}", fg="red"),
+                        err=True
+                    )
+                    if successful_count > 0:
+                        click.echo(
+                            f"Enriched {successful_count} {entity_name} before error occurred.",
+                            err=True
+                        )
+                raise click.Abort()
+
+        if last_error is not None:
             if show_progress:
                 click.echo(
-                    click.style(f" ✗ Error: {e.message}", fg="red"),
-                    err=True
+                    click.style(f" ✗ Error: {last_error.message}", fg="red"),
+                    err=True,
                 )
                 if successful_count > 0:
                     click.echo(
                         f"Enriched {successful_count} {entity_name} before error occurred.",
-                        err=True
+                        err=True,
                     )
             raise click.Abort()
 

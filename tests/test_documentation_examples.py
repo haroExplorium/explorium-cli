@@ -870,16 +870,29 @@ class TestProspectMatchExamples:
             "linkedin": "https://linkedin.com/in/johndoe"
         }])
 
-    def test_match_by_name_only(self, runner: CliRunner, config_file: Path, mock_prospects_api):
-        """Test: explorium prospects match --first-name 'Jane' --last-name 'Smith'"""
+    def test_match_by_name_only_rejected(self, runner: CliRunner, config_file: Path, mock_prospects_api):
+        """Test: name-only match is rejected — must provide company, email, or linkedin."""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "prospects", "match",
             "--first-name", "Jane",
             "--last-name", "Smith"
         ])
+        assert result.exit_code != 0
+        assert "Cannot match by name alone" in (result.output + result.stderr)
+
+    def test_match_by_name_and_company(self, runner: CliRunner, config_file: Path, mock_prospects_api):
+        """Test: explorium prospects match --first-name 'Jane' --last-name 'Smith' --company-name 'Acme'"""
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "match",
+            "--first-name", "Jane",
+            "--last-name", "Smith",
+            "--company-name", "Acme"
+        ])
         mock_prospects_api.match.assert_called_once_with([{
-            "full_name": "Jane Smith"
+            "full_name": "Jane Smith",
+            "company_name": "Acme"
         }])
 
     def test_match_from_file(self, runner: CliRunner, config_file: Path, mock_prospects_api, tmp_path: Path):
@@ -899,13 +912,14 @@ class TestProspectMatchExamples:
         mock_prospects_api.match.assert_called_once()
 
     def test_match_with_table_output(self, runner: CliRunner, config_file: Path, mock_prospects_api):
-        """Test: explorium prospects match --first-name 'John' --last-name 'Doe' -o table"""
+        """Test: explorium prospects match --first-name 'John' --last-name 'Doe' --company-name 'Acme' -o table"""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "-o", "table",
             "prospects", "match",
             "--first-name", "John",
-            "--last-name", "Doe"])
+            "--last-name", "Doe",
+            "--company-name", "Acme"])
         mock_prospects_api.match.assert_called_once()
 
 
@@ -2011,19 +2025,34 @@ class TestFeature8FullNameStripping:
             "company_name": "Acme Corp"
         }])
 
-    def test_match_name_only_includes_fullname(
+    def test_match_name_only_rejected(
         self, runner: CliRunner, config_file: Path, mock_prospects_api
     ):
-        """When no strong identifiers are present, full_name should be included."""
+        """Name-only match is rejected — must provide company, email, or linkedin."""
         result = runner.invoke(cli, [
             "--config", str(config_file),
             "prospects", "match",
             "--first-name", "Jane",
             "--last-name", "Smith"
         ])
+        assert result.exit_code != 0
+        assert "Cannot match by name alone" in (result.output + result.stderr)
+
+    def test_match_name_with_company_includes_fullname(
+        self, runner: CliRunner, config_file: Path, mock_prospects_api
+    ):
+        """When company is present, full_name should be included."""
+        result = runner.invoke(cli, [
+            "--config", str(config_file),
+            "prospects", "match",
+            "--first-name", "Jane",
+            "--last-name", "Smith",
+            "--company-name", "Acme"
+        ])
         assert result.exit_code == 0
         mock_prospects_api.match.assert_called_once_with([{
-            "full_name": "Jane Smith"
+            "full_name": "Jane Smith",
+            "company_name": "Acme"
         }])
 
 

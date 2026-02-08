@@ -11,6 +11,7 @@ import click
 
 from explorium_cli.api.businesses import BusinessesAPI
 from explorium_cli.api.prospects import ProspectsAPI
+from explorium_cli.batching import normalize_linkedin_url
 
 
 class MatchError(Exception):
@@ -127,7 +128,7 @@ def resolve_business_id(
     if domain:
         match_params["domain"] = domain
     if linkedin:
-        match_params["linkedin_url"] = linkedin
+        match_params["linkedin_url"] = normalize_linkedin_url(linkedin)
 
     # Call match API
     result = api.match([match_params])
@@ -197,7 +198,7 @@ def resolve_prospect_id(
             match_params["full_name"] = last_name
 
     if linkedin:
-        match_params["linkedin"] = linkedin
+        match_params["linkedin"] = normalize_linkedin_url(linkedin)
     if company_name:
         match_params["company_name"] = company_name
 

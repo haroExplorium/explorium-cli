@@ -404,6 +404,56 @@ class TestExploriumAPIRetry:
             assert result == {"status": "success"}
             assert mock_req.call_count == 2
 
+    def test_retry_on_422_unprocessable_entity(self):
+        """Test that 422 Unprocessable Entity errors trigger retries (transient API issues)."""
+        api = ExploriumAPI(api_key="test_key", max_retries=2, retry_delay=0.01)
+
+        mock_response_fail = MagicMock()
+        mock_response_fail.status_code = 422
+        mock_response_fail.json.return_value = {"error": "Unprocessable Entity"}
+        http_error = requests.exceptions.HTTPError(response=mock_response_fail)
+        mock_response_fail.raise_for_status.side_effect = http_error
+
+        mock_response_success = MagicMock()
+        mock_response_success.json.return_value = {"status": "success"}
+        mock_response_success.raise_for_status.return_value = None
+
+        with patch.object(
+            api.session,
+            "request",
+            side_effect=[mock_response_fail, mock_response_success]
+        ) as mock_req:
+            result = api.get("/test")
+            assert result == {"status": "success"}
+            assert mock_req.call_count == 2
+
+    @patch('time.sleep')
+    def test_retry_on_422_with_backoff(self, mock_sleep):
+        """Test that 422 retries use exponential backoff."""
+        api = ExploriumAPI(
+            api_key="test_key",
+            max_retries=2,
+            retry_delay=1.0,
+            retry_backoff=2.0
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.json.return_value = {"error": "Unprocessable Entity"}
+        http_error = requests.exceptions.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = http_error
+
+        with patch.object(api.session, "request", return_value=mock_response):
+            with pytest.raises(APIError) as exc_info:
+                api.get("/test")
+            assert exc_info.value.status_code == 422
+
+        # Verify exponential backoff delays: 1.0, 2.0
+        assert mock_sleep.call_count == 2
+        sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
+        assert sleep_calls[0] == 1.0
+        assert sleep_calls[1] == 2.0
+
     def test_retry_on_504_gateway_timeout(self):
         """Test that 504 Gateway Timeout errors trigger retries."""
         api = ExploriumAPI(api_key="test_key", max_retries=1, retry_delay=0.01)

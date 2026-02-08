@@ -10,7 +10,7 @@ from explorium_cli.utils import get_api, handle_api_call, output_options
 from explorium_cli.formatters import output, output_error
 from explorium_cli.api.client import APIError
 from explorium_cli.pagination import paginated_fetch
-from explorium_cli.batching import parse_csv_ids, parse_csv_prospect_match_params, batched_enrich, batched_match
+from explorium_cli.batching import parse_csv_ids, parse_csv_prospect_match_params, batched_enrich, batched_match, normalize_linkedin_url
 from explorium_cli.match_utils import (
     prospect_match_options,
     resolve_prospect_id,
@@ -94,6 +94,16 @@ def _resolve_enrichment_methods(types_str, prospects_api):
 
 def _print_match_summary(result: dict, total_input: int) -> None:
     """Print match statistics to stderr."""
+    meta = result.get("_match_meta")
+    if meta:
+        parts = [f"Matched: {meta['matched']}/{meta['total_input']}"]
+        if meta["not_found"]:
+            parts.append(f"Not found: {meta['not_found']}")
+        if meta["errors"]:
+            parts.append(f"Errors: {meta['errors']}")
+        click.echo(" | ".join(parts), err=True)
+        return
+    # Fallback for backward compat
     matches = result.get("matched_prospects") or result.get("data", [])
     if isinstance(matches, list):
         matched = len(matches)
@@ -174,9 +184,13 @@ def match(
         if email:
             prospect["email"] = email
         if linkedin:
-            prospect["linkedin"] = linkedin
+            prospect["linkedin"] = normalize_linkedin_url(linkedin)
         if company_name:
             prospect["company_name"] = company_name
+        if prospect and list(prospect.keys()) == ["full_name"]:
+            raise click.UsageError(
+                "Cannot match by name alone. Also provide --company-name, --email, or --linkedin."
+            )
         prospects_to_match = [prospect]
     else:
         raise click.UsageError(
@@ -188,11 +202,18 @@ def match(
             prospects_api.match,
             prospects_to_match,
             result_key="matched_prospects",
+            id_key="prospect_id",
             entity_name="prospects",
+            preserve_input=True,
         )
     except APIError as e:
         output_error(e.message, e.response)
         raise click.Abort()
+
+    if summary and result:
+        _print_match_summary(result, len(prospects_to_match))
+
+    result.pop("_match_meta", None)
 
     if ids_only:
         records = result.get("matched_prospects") or result.get("data", [])
@@ -208,9 +229,6 @@ def match(
             if isinstance(records, list):
                 output_data = records
         output(output_data, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
-
-    if summary and result:
-        _print_match_summary(result, len(prospects_to_match))
 
 
 @prospects.command()
@@ -551,8 +569,9 @@ def enrich_file(
     else:
         match_params_list = json.load(file)
 
-    # Resolve each to a prospect ID
+    # Resolve each to a prospect ID, tracking input params for later merge
     prospect_ids = []
+    id_to_input: dict = {}
     match_failures = []
 
     for i, params in enumerate(match_params_list):
@@ -574,6 +593,7 @@ def enrich_file(
                 min_confidence=min_confidence
             )
             prospect_ids.append(resolved_id)
+            id_to_input[resolved_id] = params
         except (MatchError, LowConfidenceError) as e:
             match_failures.append((i, params, str(e)))
 
@@ -602,6 +622,15 @@ def enrich_file(
             partial = batched_enrich(api_method, prospect_ids, entity_name="prospects")
             all_data.extend(partial.get("data", []))
         result = {"status": "success", "data": all_data}
+
+    # Merge original input columns into enrichment results
+    enriched_data = result.get("data", [])
+    if isinstance(enriched_data, list):
+        for row in enriched_data:
+            pid = row.get("prospect_id", "")
+            if pid in id_to_input:
+                for k, v in id_to_input[pid].items():
+                    row[f"input_{k}"] = v
 
     output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
 

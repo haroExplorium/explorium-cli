@@ -533,8 +533,10 @@ Bulk enrich multiple prospects with contact information (up to 50).
 # Bulk enrich by prospect IDs
 explorium prospects bulk-enrich --ids "a0997d3905e02c919f1f7092ad4947c8e0cddade,8112e31c5e3a4fc93d4413abeee778b5d4e5c99d"
 
-# From a file with IDs (one per line)
-explorium prospects bulk-enrich --file prospect_ids.txt
+# From a CSV file (reads prospect_id column, ignores all other columns)
+# This means match CSV output feeds directly into bulk-enrich:
+explorium prospects match -f leads.csv -o csv --output-file matched.csv
+explorium prospects bulk-enrich -f matched.csv --types all -o csv --output-file enriched.csv
 ```
 
 **Using match file (no IDs required):**
@@ -874,16 +876,20 @@ When using CSV files with `bulk-enrich` (via `--file`), the `prospect_id` and `b
 
 ## Pipeline: Match → Bulk-Enrich
 
-The `--ids-only` and `--format csv` flags on `match` make it easy to pipe match results directly into `bulk-enrich`:
+The `--ids-only` and `-o csv` flags on `match` make it easy to pipe match results directly into `bulk-enrich`:
 
 ```bash
 # Option 1: --ids-only outputs just IDs, one per line
 explorium prospects match -f leads.csv --ids-only > prospect_ids.txt
 explorium prospects bulk-enrich -f prospect_ids.txt
 
-# Option 2: --format csv outputs a full CSV with prospect_id column
-explorium businesses match -f companies.csv --format csv > matched.csv
+# Option 2: -o csv outputs a full CSV with prospect_id/business_id column.
+# bulk-enrich reads that column and ignores everything else — no intermediate processing needed.
+explorium businesses match -f companies.csv -o csv --output-file matched.csv
 explorium businesses bulk-enrich -f matched.csv
+
+explorium prospects match -f leads.csv -o csv --output-file matched.csv
+explorium prospects bulk-enrich -f matched.csv --types all -o csv --output-file enriched.csv
 ```
 
 ## Subcommand `--format` Option

@@ -300,7 +300,7 @@ class TestProspectCommands:
         assert "enrich" in result.output
 
     def test_prospects_match_with_name(self, runner: CliRunner, config_with_key: Path):
-        """Test prospects match with name."""
+        """Test prospects match with name + company (name alone is rejected)."""
         with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI:
             mock_instance = MagicMock()
             mock_instance.match.return_value = {"status": "success", "data": []}
@@ -312,11 +312,26 @@ class TestProspectCommands:
                     "--config", str(config_with_key),
                     "prospects", "match",
                     "--first-name", "John",
-                    "--last-name", "Doe"
+                    "--last-name", "Doe",
+                    "--company-name", "Acme"
                 ]
             )
 
             mock_instance.match.assert_called_once()
+
+    def test_prospects_match_name_only_rejected(self, runner: CliRunner, config_with_key: Path):
+        """Test that name-only match is rejected with a helpful error."""
+        result = runner.invoke(
+            cli,
+            [
+                "--config", str(config_with_key),
+                "prospects", "match",
+                "--first-name", "John",
+                "--last-name", "Doe"
+            ]
+        )
+        assert result.exit_code != 0
+        assert "Cannot match by name alone" in (result.output + result.stderr)
 
     def test_prospects_search(self, runner: CliRunner, config_with_key: Path):
         """Test prospects search."""

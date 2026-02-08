@@ -21,7 +21,7 @@ class APIError(Exception):
 
 
 # HTTP status codes that should trigger a retry
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+RETRYABLE_STATUS_CODES = {422, 429, 500, 502, 503, 504}
 
 
 class ExploriumAPI:

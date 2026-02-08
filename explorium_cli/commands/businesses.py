@@ -10,7 +10,7 @@ from explorium_cli.utils import get_api, handle_api_call, output_options
 from explorium_cli.formatters import output, output_error
 from explorium_cli.api.client import APIError
 from explorium_cli.pagination import paginated_fetch
-from explorium_cli.batching import parse_csv_ids, parse_csv_business_match_params, batched_enrich, batched_match
+from explorium_cli.batching import parse_csv_ids, parse_csv_business_match_params, batched_enrich, batched_match, normalize_linkedin_url
 from explorium_cli.match_utils import (
     business_match_options,
     resolve_business_id,
@@ -69,6 +69,16 @@ def _resolve_business_id_with_errors(
 
 def _print_match_summary(result: dict, total_input: int) -> None:
     """Print match statistics to stderr."""
+    meta = result.get("_match_meta")
+    if meta:
+        parts = [f"Matched: {meta['matched']}/{meta['total_input']}"]
+        if meta["not_found"]:
+            parts.append(f"Not found: {meta['not_found']}")
+        if meta["errors"]:
+            parts.append(f"Errors: {meta['errors']}")
+        click.echo(" | ".join(parts), err=True)
+        return
+    # Fallback for backward compat
     matches = result.get("matched_businesses") or result.get("data", [])
     if isinstance(matches, list):
         matched = len(matches)
@@ -121,7 +131,7 @@ def match(
         businesses_to_match = [{
             "name": name,
             "domain": domain,
-            "linkedin_url": linkedin
+            "linkedin_url": normalize_linkedin_url(linkedin) if linkedin else linkedin
         }]
     else:
         raise click.UsageError(
@@ -133,11 +143,18 @@ def match(
             businesses_api.match,
             businesses_to_match,
             result_key="matched_businesses",
+            id_key="business_id",
             entity_name="businesses",
+            preserve_input=True,
         )
     except APIError as e:
         output_error(e.message, e.response)
         raise click.Abort()
+
+    if summary and result:
+        _print_match_summary(result, len(businesses_to_match))
+
+    result.pop("_match_meta", None)
 
     output_format = ctx.obj["output"]
 
@@ -155,9 +172,6 @@ def match(
             if isinstance(records, list):
                 output_data = records
         output(output_data, output_format, file_path=ctx.obj.get("output_file"))
-
-    if summary and result:
-        _print_match_summary(result, len(businesses_to_match))
 
 
 @businesses.command()
@@ -671,12 +685,37 @@ def bulk_enrich(
         click.echo(f"Enriched: {len(business_ids)} businesses", err=True)
 
 
+def _resolve_business_enrichment_methods(types_str, businesses_api):
+    """Parse comma-separated --types and return list of (label, api_method) pairs."""
+    valid = {
+        "firmographics": ("firmographics", businesses_api.bulk_enrich),
+    }
+    requested = [t.strip().lower() for t in types_str.split(",")]
+
+    if "all" in requested:
+        requested = list(valid.keys())
+
+    methods = []
+    for t in requested:
+        if t not in valid:
+            raise click.UsageError(
+                f"Unknown enrichment type '{t}'. Valid: firmographics, all"
+            )
+        methods.append(valid[t])
+    return methods
+
+
 @businesses.command("enrich-file")
 @click.option(
     "--file", "-f",
     required=True,
     type=click.File("r"),
     help="CSV or JSON file with businesses to match and enrich"
+)
+@click.option(
+    "--types",
+    default="firmographics",
+    help="Enrichment types, comma-separated: firmographics, all"
 )
 @click.option(
     "--min-confidence",
@@ -690,6 +729,7 @@ def bulk_enrich(
 def enrich_file(
     ctx: click.Context,
     file,
+    types: str,
     min_confidence: float,
     summary: bool,
 ) -> None:
@@ -697,6 +737,10 @@ def enrich_file(
 
     Reads CSV or JSON file with match parameters, resolves each to a
     business ID, then bulk-enriches all matched businesses.
+
+    Use --types to select enrichment (comma-separated):
+      firmographics — company data (default)
+      all           — all available types
     """
     api = get_api(ctx)
     businesses_api = BusinessesAPI(api)
@@ -707,8 +751,9 @@ def enrich_file(
     else:
         match_params_list = json.load(file)
 
-    # Resolve each to a business ID
+    # Resolve each to a business ID, tracking input params for later merge
     business_ids = []
+    id_to_input: dict = {}
     match_failures = []
 
     for i, params in enumerate(match_params_list):
@@ -721,6 +766,7 @@ def enrich_file(
                 min_confidence=min_confidence
             )
             business_ids.append(resolved_id)
+            id_to_input[resolved_id] = params
         except (MatchError, LowConfidenceError) as e:
             match_failures.append((i, params, str(e)))
 
@@ -737,11 +783,28 @@ def enrich_file(
     if not business_ids:
         raise click.UsageError("No businesses could be matched from file")
 
-    result = batched_enrich(
-        businesses_api.bulk_enrich,
-        business_ids,
-        entity_name="businesses"
-    )
+    # Route to correct enrichment method(s)
+    methods = _resolve_business_enrichment_methods(types.strip(), businesses_api)
+
+    if len(methods) == 1:
+        result = batched_enrich(methods[0][1], business_ids, entity_name="businesses")
+    else:
+        all_data = []
+        for label, api_method in methods:
+            click.echo(f"Enriching {label}...", err=True)
+            partial = batched_enrich(api_method, business_ids, entity_name="businesses")
+            all_data.extend(partial.get("data", []))
+        result = {"status": "success", "data": all_data}
+
+    # Merge original input columns into enrichment results
+    enriched_data = result.get("data", [])
+    if isinstance(enriched_data, list):
+        for row in enriched_data:
+            bid = row.get("business_id", "")
+            if bid in id_to_input:
+                for k, v in id_to_input[bid].items():
+                    row[f"input_{k}"] = v
+
     output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
 
 

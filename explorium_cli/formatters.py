@@ -16,6 +16,44 @@ console = Console()
 error_console = Console(stderr=True)
 
 
+def _flatten_dict(d: dict, parent_key: str = "", sep: str = ".") -> dict:
+    """Recursively flatten nested dicts.
+
+    - Nested dicts: {"a": {"b": 1}} -> {"a.b": 1}
+    - Lists of scalars: {"tags": ["tech", "saas"]} -> {"tags": "tech, saas"}
+    - Lists of dicts: {"emails": [{"addr": "a@b"}]} -> {"emails.0.addr": "a@b"}
+    - Empty lists: {"items": []} -> {"items": ""}
+    """
+    items: list[tuple[str, Any]] = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(_flatten_dict(v, new_key, sep).items())
+        elif isinstance(v, list):
+            if not v:
+                items.append((new_key, ""))
+            elif all(isinstance(i, dict) for i in v):
+                for idx, item in enumerate(v):
+                    items.extend(_flatten_dict(item, f"{new_key}{sep}{idx}", sep).items())
+            elif any(isinstance(i, (dict, list)) for i in v):
+                items.append((new_key, json.dumps(v, default=str)))
+            else:
+                items.append((new_key, ", ".join(str(i) for i in v)))
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+
+def _should_flatten(data: list[dict]) -> bool:
+    """Check first 5 rows for any nested dict/list values."""
+    for row in data[:5]:
+        if isinstance(row, dict):
+            for v in row.values():
+                if isinstance(v, (dict, list)):
+                    return True
+    return False
+
+
 def output(data: Any, format: str = "json", title: Optional[str] = None, file_path: Optional[str] = None) -> None:
     """
     Output data in the specified format.
@@ -135,6 +173,10 @@ def output_csv(data: Any) -> None:
     if not data:
         return
 
+    # Flatten nested structures for usable CSV output
+    if _should_flatten(data):
+        data = [_flatten_dict(row) if isinstance(row, dict) else row for row in data]
+
     # Get all unique keys across all rows for headers
     all_keys: set[str] = set()
     for row in data:
@@ -154,7 +196,7 @@ def output_csv(data: Any) -> None:
 
     for row in data:
         if isinstance(row, dict):
-            # Convert complex values to JSON strings
+            # Convert any remaining complex values to JSON strings
             processed_row = {}
             for key, val in row.items():
                 if isinstance(val, (dict, list)):
@@ -233,6 +275,10 @@ def _write_to_file(data: Any, format: str, file_path: str) -> None:
             format = "json"
 
         if format == "csv" and isinstance(rows, list) and rows:
+            # Flatten nested structures for usable CSV output
+            if _should_flatten(rows):
+                rows = [_flatten_dict(row) if isinstance(row, dict) else row for row in rows]
+
             all_keys: set[str] = set()
             for row in rows:
                 if isinstance(row, dict):

@@ -9,6 +9,7 @@ import pytest
 from explorium_cli.formatters import (
     output,
     output_json,
+    output_csv,
     output_table,
     output_error,
     output_success,
@@ -16,6 +17,8 @@ from explorium_cli.formatters import (
     output_info,
     format_business,
     format_prospect,
+    _flatten_dict,
+    _should_flatten,
 )
 
 
@@ -267,3 +270,92 @@ class TestFormatFunctions:
         """Test formatting empty prospect dict."""
         result = format_prospect({})
         assert "ID:" in result
+
+
+class TestFlattenDict:
+    """Tests for _flatten_dict function."""
+
+    def test_flat_dict_unchanged(self):
+        d = {"a": 1, "b": "hello"}
+        assert _flatten_dict(d) == {"a": 1, "b": "hello"}
+
+    def test_nested_dict(self):
+        d = {"a": {"b": 1}}
+        assert _flatten_dict(d) == {"a.b": 1}
+
+    def test_deeply_nested(self):
+        d = {"a": {"b": {"c": 42}}}
+        assert _flatten_dict(d) == {"a.b.c": 42}
+
+    def test_simple_list_joined(self):
+        d = {"tags": ["tech", "saas"]}
+        assert _flatten_dict(d) == {"tags": "tech, saas"}
+
+    def test_list_of_dicts_expanded(self):
+        d = {"emails": [{"addr": "a@b.com"}, {"addr": "c@d.com"}]}
+        assert _flatten_dict(d) == {"emails.0.addr": "a@b.com", "emails.1.addr": "c@d.com"}
+
+    def test_empty_list(self):
+        d = {"items": []}
+        assert _flatten_dict(d) == {"items": ""}
+
+    def test_none_values(self):
+        d = {"a": None, "b": 1}
+        assert _flatten_dict(d) == {"a": None, "b": 1}
+
+    def test_mixed_nesting(self):
+        d = {
+            "name": "John",
+            "address": {"city": "NY", "zip": "10001"},
+            "tags": ["dev", "python"],
+        }
+        result = _flatten_dict(d)
+        assert result == {
+            "name": "John",
+            "address.city": "NY",
+            "address.zip": "10001",
+            "tags": "dev, python",
+        }
+
+
+class TestShouldFlatten:
+    """Tests for _should_flatten function."""
+
+    def test_flat_data_returns_false(self):
+        data = [{"a": 1, "b": "hello"}, {"a": 2, "b": "world"}]
+        assert _should_flatten(data) is False
+
+    def test_nested_dict_returns_true(self):
+        data = [{"a": 1, "b": {"c": 2}}]
+        assert _should_flatten(data) is True
+
+    def test_list_value_returns_true(self):
+        data = [{"a": 1, "b": [1, 2, 3]}]
+        assert _should_flatten(data) is True
+
+    def test_empty_data_returns_false(self):
+        assert _should_flatten([]) is False
+
+    def test_non_dict_rows_returns_false(self):
+        assert _should_flatten(["a", "b"]) is False
+
+
+class TestCsvFlatOutput:
+    """Tests for flat CSV output with nested data."""
+
+    def test_output_csv_flattens_nested(self, capsys):
+        """CSV output flattens nested dicts."""
+        data = [{"name": "John", "address": {"city": "NY"}}]
+        output_csv(data)
+        captured = capsys.readouterr()
+        assert "address.city" in captured.out
+        assert "NY" in captured.out
+        assert "{" not in captured.out
+
+    def test_output_csv_flat_data_unchanged(self, capsys):
+        """CSV output for flat data works normally."""
+        data = [{"name": "John", "age": 30}]
+        output_csv(data)
+        captured = capsys.readouterr()
+        assert "name" in captured.out
+        assert "John" in captured.out

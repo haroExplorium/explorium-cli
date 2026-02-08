@@ -11,6 +11,8 @@ from explorium_cli.batching import (
     parse_csv_business_match_params,
     parse_csv_prospect_match_params,
     batched_enrich,
+    batched_match,
+    normalize_linkedin_url,
 )
 
 
@@ -393,7 +395,7 @@ class TestParseCsvProspectMatchParams:
         ]
 
     def test_full_name_column_takes_precedence(self):
-        csv_content = "first_name,last_name,full_name\nJohn,Doe,Jonathan Doe\n"
+        csv_content = "first_name,last_name,full_name,company_name\nJohn,Doe,Jonathan Doe,Acme\n"
         file = io.StringIO(csv_content)
 
         result = parse_csv_prospect_match_params(file)
@@ -655,3 +657,228 @@ class TestProspectColumnAliases:
         assert "first_name" in error_msg
         assert "full_name" in error_msg
         assert "company_name" in error_msg
+
+
+class TestNormalizeLinkedinUrl:
+    """Tests for normalize_linkedin_url function."""
+
+    def test_no_scheme(self):
+        assert normalize_linkedin_url("linkedin.com/in/johndoe") == "https://linkedin.com/in/johndoe"
+
+    def test_www_no_scheme(self):
+        assert normalize_linkedin_url("www.linkedin.com/in/johndoe") == "https://www.linkedin.com/in/johndoe"
+
+    def test_https_unchanged(self):
+        assert normalize_linkedin_url("https://linkedin.com/in/johndoe") == "https://linkedin.com/in/johndoe"
+
+    def test_http_unchanged(self):
+        assert normalize_linkedin_url("http://linkedin.com/in/johndoe") == "http://linkedin.com/in/johndoe"
+
+    def test_empty_string(self):
+        assert normalize_linkedin_url("") == ""
+
+    def test_none_returns_none(self):
+        assert normalize_linkedin_url(None) is None
+
+    def test_case_insensitive_scheme_detection(self):
+        assert normalize_linkedin_url("HTTPS://linkedin.com/in/x") == "HTTPS://linkedin.com/in/x"
+        assert normalize_linkedin_url("HTTP://linkedin.com/in/x") == "HTTP://linkedin.com/in/x"
+
+    def test_prospect_csv_with_bare_linkedin(self):
+        """Integration: prospect CSV with bare linkedin.com gets https:// added."""
+        csv_content = "full_name,linkedin,company_name\nJohn Doe,linkedin.com/in/johndoe,Acme\n"
+        file = io.StringIO(csv_content)
+        result = parse_csv_prospect_match_params(file)
+        assert result[0]["linkedin"] == "https://linkedin.com/in/johndoe"
+
+    def test_business_csv_with_bare_linkedin(self):
+        """Integration: business CSV with bare linkedin.com gets https:// added."""
+        csv_content = "name,linkedin_url\nAcme Corp,linkedin.com/company/acme\n"
+        file = io.StringIO(csv_content)
+        result = parse_csv_business_match_params(file)
+        assert result[0]["linkedin_url"] == "https://linkedin.com/company/acme"
+
+
+class TestNameWithoutCompanyValidation:
+    """Tests for name-only row skipping in parse_csv_prospect_match_params."""
+
+    def test_name_only_row_skipped_with_warning(self, capsys):
+        """Name-only row is skipped, valid row passes through."""
+        csv_content = "full_name,company_name\nJohn Doe,\nJane Smith,Acme\n"
+        file = io.StringIO(csv_content)
+        result = parse_csv_prospect_match_params(file)
+        assert len(result) == 1
+        assert result[0]["full_name"] == "Jane Smith"
+        captured = capsys.readouterr()
+        assert "Skipping 'John Doe'" in captured.err
+
+    def test_all_name_only_rows_raises_error(self, capsys):
+        """All name-only rows -> UsageError."""
+        csv_content = "full_name,company_name\nJohn Doe,\nJane Smith,\n"
+        file = io.StringIO(csv_content)
+        with pytest.raises(click.UsageError, match="No valid prospect match rows"):
+            parse_csv_prospect_match_params(file)
+
+    def test_name_with_email_not_skipped(self):
+        """Name + email row is not skipped."""
+        csv_content = "full_name,email\nJohn Doe,john@acme.com\n"
+        file = io.StringIO(csv_content)
+        result = parse_csv_prospect_match_params(file)
+        assert len(result) == 1
+
+    def test_name_with_linkedin_not_skipped(self):
+        """Name + linkedin row is not skipped."""
+        csv_content = "full_name,linkedin\nJohn Doe,https://linkedin.com/in/johndoe\n"
+        file = io.StringIO(csv_content)
+        result = parse_csv_prospect_match_params(file)
+        assert len(result) == 1
+
+    def test_name_with_company_not_skipped(self):
+        """Name + company row is not skipped."""
+        csv_content = "full_name,company_name\nJohn Doe,Acme\n"
+        file = io.StringIO(csv_content)
+        result = parse_csv_prospect_match_params(file)
+        assert len(result) == 1
+        assert result[0] == {"full_name": "John Doe", "company_name": "Acme"}
+
+
+class TestBatchedMatchMeta:
+    """Tests for _match_meta in batched_match results."""
+
+    def test_single_batch_meta_all_matched(self):
+        """Single batch: all records have prospect_id."""
+        mock_api = MagicMock()
+        mock_api.return_value = {
+            "matched_prospects": [
+                {"prospect_id": "p1", "name": "John"},
+                {"prospect_id": "p2", "name": "Jane"},
+            ]
+        }
+        result = batched_match(
+            mock_api, [{"full_name": "John"}, {"full_name": "Jane"}],
+            result_key="matched_prospects", id_key="prospect_id",
+        )
+        meta = result["_match_meta"]
+        assert meta["total_input"] == 2
+        assert meta["matched"] == 2
+        assert meta["not_found"] == 0
+        assert meta["errors"] == 0
+
+    def test_single_batch_meta_some_not_found(self):
+        """Single batch: some records have empty prospect_id."""
+        mock_api = MagicMock()
+        mock_api.return_value = {
+            "matched_prospects": [
+                {"prospect_id": "p1", "name": "John"},
+                {"prospect_id": "", "name": "Jane"},
+                {"name": "Bob"},
+            ]
+        }
+        result = batched_match(
+            mock_api,
+            [{"full_name": "John"}, {"full_name": "Jane"}, {"full_name": "Bob"}],
+            result_key="matched_prospects", id_key="prospect_id",
+        )
+        meta = result["_match_meta"]
+        assert meta["matched"] == 1
+        assert meta["not_found"] == 2
+
+    def test_multi_batch_meta_accumulates(self):
+        """Multi-batch: meta sums across batches."""
+        mock_api = MagicMock()
+        mock_api.side_effect = [
+            {"matched_prospects": [
+                {"prospect_id": "p1"},
+                {"prospect_id": ""},
+            ]},
+            {"matched_prospects": [
+                {"prospect_id": "p3"},
+            ]},
+        ]
+        items = [{"full_name": f"person{i}"} for i in range(3)]
+        result = batched_match(
+            mock_api, items,
+            result_key="matched_prospects", id_key="prospect_id",
+            batch_size=2, show_progress=False,
+        )
+        meta = result["_match_meta"]
+        assert meta["total_input"] == 3
+        assert meta["matched"] == 2
+        assert meta["not_found"] == 1
+
+    def test_no_id_key_counts_all_as_matched(self):
+        """When id_key is empty, all returned records count as matched."""
+        mock_api = MagicMock()
+        mock_api.return_value = {
+            "matched_prospects": [{"name": "John"}, {"name": "Jane"}]
+        }
+        result = batched_match(
+            mock_api, [{"full_name": "John"}, {"full_name": "Jane"}],
+            result_key="matched_prospects",
+        )
+        meta = result["_match_meta"]
+        assert meta["matched"] == 2
+        assert meta["not_found"] == 0
+
+
+class TestPreserveInput:
+    """Tests for preserve_input in batched_match."""
+
+    def test_preserve_input_single_batch(self):
+        """Single batch with preserve_input merges input columns."""
+        mock_api = MagicMock()
+        mock_api.return_value = {
+            "matched_prospects": [
+                {"prospect_id": "p1", "name": "John"},
+                {"prospect_id": "p2", "name": "Jane"},
+            ]
+        }
+        items = [
+            {"full_name": "John Doe", "company_name": "Acme"},
+            {"full_name": "Jane Smith", "company_name": "Globex"},
+        ]
+        result = batched_match(
+            mock_api, items,
+            result_key="matched_prospects", id_key="prospect_id",
+            preserve_input=True,
+        )
+        records = result["matched_prospects"]
+        assert records[0]["input_full_name"] == "John Doe"
+        assert records[0]["input_company_name"] == "Acme"
+        assert records[1]["input_full_name"] == "Jane Smith"
+        assert records[1]["input_company_name"] == "Globex"
+
+    def test_preserve_input_multi_batch(self):
+        """Multi-batch with preserve_input merges input columns."""
+        mock_api = MagicMock()
+        mock_api.side_effect = [
+            {"matched_prospects": [{"prospect_id": "p1"}, {"prospect_id": "p2"}]},
+            {"matched_prospects": [{"prospect_id": "p3"}]},
+        ]
+        items = [
+            {"full_name": "A", "company_name": "X"},
+            {"full_name": "B", "company_name": "Y"},
+            {"full_name": "C", "company_name": "Z"},
+        ]
+        result = batched_match(
+            mock_api, items,
+            result_key="matched_prospects", id_key="prospect_id",
+            batch_size=2, preserve_input=True, show_progress=False,
+        )
+        records = result["matched_prospects"]
+        assert records[0]["input_full_name"] == "A"
+        assert records[1]["input_full_name"] == "B"
+        assert records[2]["input_full_name"] == "C"
+
+    def test_preserve_input_false_no_input_columns(self):
+        """Default (preserve_input=False) does not add input_ columns."""
+        mock_api = MagicMock()
+        mock_api.return_value = {
+            "matched_prospects": [{"prospect_id": "p1", "name": "John"}]
+        }
+        result = batched_match(
+            mock_api, [{"full_name": "John"}],
+            result_key="matched_prospects",
+        )
+        records = result["matched_prospects"]
+        assert "input_full_name" not in records[0]
