@@ -15,15 +15,14 @@ B2B data enrichment CLI. Match companies/prospects to IDs, enrich with firmograp
 which explorium 2>/dev/null || ls ~/.local/bin/explorium 2>/dev/null
 ```
 
-If not found, download and install:
+If not found, install with the one-liner:
 
 ```bash
-mkdir -p ~/.local/bin
-curl -L -o ~/.local/bin/explorium \
-  "https://github.com/haroExplorium/explorium-cli/releases/latest/download/explorium-darwin-arm64"
-chmod +x ~/.local/bin/explorium
+curl -fsSL https://raw.githubusercontent.com/haroExplorium/explorium-cli/main/install.sh | bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+This downloads the CLI binary to `~/.local/bin/explorium`, makes it executable, and adds it to PATH.
 
 **Step 2: Check if API key is configured**
 
