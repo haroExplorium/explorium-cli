@@ -359,3 +359,57 @@ class TestCsvFlatOutput:
         captured = capsys.readouterr()
         assert "name" in captured.out
         assert "John" in captured.out
+
+    def test_output_csv_preserves_prospect_id_with_nested_data(self, capsys):
+        """CSV output preserves prospect_id alongside flattened data.* fields.
+
+        Regression test for JIRA: bulk-enrich CSV was dropping prospect_id.
+        """
+        data = {
+            "status": "success",
+            "data": [
+                {
+                    "prospect_id": "p1",
+                    "data": {
+                        "emails": [{"address": "a@b.com", "type": "work"}],
+                        "mobile_phone": "+1234567890",
+                    }
+                },
+                {
+                    "prospect_id": "p2",
+                    "data": {
+                        "emails": [{"address": "c@d.com", "type": "personal"}],
+                        "mobile_phone": None,
+                    }
+                },
+            ]
+        }
+        output_csv(data)
+        captured = capsys.readouterr()
+        lines = captured.out.strip().split("\n")
+        header = lines[0]
+        # prospect_id must be in the CSV header
+        assert "prospect_id" in header
+        # Flattened data fields must also be present
+        assert "data.emails.0.address" in header
+        assert "data.mobile_phone" in header
+        # Data rows must contain the actual IDs
+        assert "p1" in lines[1] or "p1" in lines[2]
+        assert "p2" in lines[1] or "p2" in lines[2]
+
+    def test_output_csv_preserves_business_id_with_nested_data(self, capsys):
+        """CSV output preserves business_id alongside flattened data fields."""
+        data = {
+            "status": "success",
+            "data": [
+                {
+                    "business_id": "b1",
+                    "data": {"name": "Acme Corp", "revenue": "10M"}
+                },
+            ]
+        }
+        output_csv(data)
+        captured = capsys.readouterr()
+        header = captured.out.strip().split("\n")[0]
+        assert "business_id" in header
+        assert "data.name" in header

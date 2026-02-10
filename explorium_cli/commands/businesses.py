@@ -677,7 +677,8 @@ def bulk_enrich(
     result = batched_enrich(
         businesses_api.bulk_enrich,
         business_ids,
-        entity_name="businesses"
+        entity_name="businesses",
+        id_key="business_id",
     )
     output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
 
@@ -787,12 +788,12 @@ def enrich_file(
     methods = _resolve_business_enrichment_methods(types.strip(), businesses_api)
 
     if len(methods) == 1:
-        result = batched_enrich(methods[0][1], business_ids, entity_name="businesses")
+        result = batched_enrich(methods[0][1], business_ids, entity_name="businesses", id_key="business_id")
     else:
         all_data = []
         for label, api_method in methods:
             click.echo(f"Enriching {label}...", err=True)
-            partial = batched_enrich(api_method, business_ids, entity_name="businesses")
+            partial = batched_enrich(api_method, business_ids, entity_name="businesses", id_key="business_id")
             all_data.extend(partial.get("data", []))
         result = {"status": "success", "data": all_data}
 

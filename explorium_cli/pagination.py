@@ -32,6 +32,10 @@ def paginated_fetch(
     if total <= 0:
         raise ValueError("Total must be positive")
 
+    # Clamp page_size to total to avoid API 422 (size must be >= page_size)
+    if page_size > total:
+        page_size = total
+
     all_results: list = []
     page = 1
     pages_fetched = 0

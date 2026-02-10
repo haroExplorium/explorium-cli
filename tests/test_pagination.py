@@ -187,11 +187,12 @@ class TestPaginatedFetch:
             mode="preview"
         )
 
+        # page_size is clamped to min(50, total=1) = 1
         mock_api.assert_called_once_with(
             filters={"country": ["us"]},
             mode="preview",
             size=1,         # total
-            page_size=50,   # per page
+            page_size=1,    # clamped to total
             page=1
         )
 
@@ -289,6 +290,52 @@ class TestPaginatedFetch:
         assert "total_requested" in result["meta"]
         assert "total_collected" in result["meta"]
         assert "pages_fetched" in result["meta"]
+
+    def test_page_size_clamped_to_total(self):
+        """Test that page_size is clamped to total to avoid API 422 error.
+
+        Regression: `prospects search --total 3` sent size=3, page_size=100
+        which the API rejected because size must be >= page_size.
+        """
+        mock_api = MagicMock()
+        mock_api.return_value = {
+            "status": "success",
+            "data": [{"id": "1"}, {"id": "2"}, {"id": "3"}],
+        }
+
+        result = paginated_fetch(
+            mock_api,
+            total=3,
+            page_size=100,  # page_size > total
+            show_progress=False,
+            filters={"country": ["us"]}
+        )
+
+        # page_size should be clamped to 3 (total)
+        call_kwargs = mock_api.call_args[1]
+        assert call_kwargs["page_size"] == 3  # clamped from 100
+        assert call_kwargs["size"] == 3       # total
+        assert len(result["data"]) == 3
+
+    def test_page_size_not_clamped_when_smaller(self):
+        """Test that page_size is unchanged when already <= total."""
+        mock_api = MagicMock()
+        mock_api.return_value = {
+            "status": "success",
+            "data": [{"id": str(i)} for i in range(25)],
+        }
+
+        paginated_fetch(
+            mock_api,
+            total=50,
+            page_size=25,  # page_size < total, no clamping
+            show_progress=False,
+            filters={}
+        )
+
+        call_kwargs = mock_api.call_args[1]
+        assert call_kwargs["page_size"] == 25  # unchanged
+        assert call_kwargs["size"] == 50       # total
 
     def test_custom_page_size(self):
         """Test fetching with custom page size."""

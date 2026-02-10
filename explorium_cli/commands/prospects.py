@@ -505,12 +505,12 @@ def bulk_enrich(
     methods = _resolve_enrichment_methods(enrich_type_str, prospects_api)
 
     if len(methods) == 1:
-        result = batched_enrich(methods[0][1], prospect_ids, entity_name="prospects")
+        result = batched_enrich(methods[0][1], prospect_ids, entity_name="prospects", id_key="prospect_id")
     else:
         all_data = []
         for label, api_method in methods:
             click.echo(f"Enriching {label}...", err=True)
-            partial = batched_enrich(api_method, prospect_ids, entity_name="prospects")
+            partial = batched_enrich(api_method, prospect_ids, entity_name="prospects", id_key="prospect_id")
             all_data.extend(partial.get("data", []))
         result = {"status": "success", "data": all_data}
 
@@ -614,12 +614,12 @@ def enrich_file(
     methods = _resolve_enrichment_methods(types.strip(), prospects_api)
 
     if len(methods) == 1:
-        result = batched_enrich(methods[0][1], prospect_ids, entity_name="prospects")
+        result = batched_enrich(methods[0][1], prospect_ids, entity_name="prospects", id_key="prospect_id")
     else:
         all_data = []
         for label, api_method in methods:
             click.echo(f"Enriching {label}...", err=True)
-            partial = batched_enrich(api_method, prospect_ids, entity_name="prospects")
+            partial = batched_enrich(api_method, prospect_ids, entity_name="prospects", id_key="prospect_id")
             all_data.extend(partial.get("data", []))
         result = {"status": "success", "data": all_data}
 

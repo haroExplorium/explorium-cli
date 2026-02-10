@@ -524,6 +524,7 @@ def batched_enrich(
     batch_size: int = 50,
     entity_name: str = "records",
     show_progress: bool = True,
+    id_key: str = "",
     **api_kwargs: Any
 ) -> dict:
     """
@@ -573,6 +574,11 @@ def batched_enrich(
                     if "data" in result:
                         data = result["data"]
                         if isinstance(data, list):
+                            # Inject entity ID into records that don't have it
+                            if id_key and len(data) == len(batch_ids):
+                                for j, record in enumerate(data):
+                                    if isinstance(record, dict) and id_key not in record:
+                                        record[id_key] = batch_ids[j]
                             all_data.extend(data)
                         else:
                             all_data.append(data)
