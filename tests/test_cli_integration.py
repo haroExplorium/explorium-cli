@@ -1053,6 +1053,192 @@ class TestProspectSearchPagination:
             assert call_kwargs["size"] == 25
 
 
+class TestEnrichFileEmailOnly:
+    """Tests for the bug: enrich-file 422 on email-only matched prospects.
+
+    resolve_prospect_id was missing the email parameter, so email-only
+    prospects were matched with empty params, causing 422 on enrichment.
+    """
+
+    def test_enrich_file_passes_email_to_match(self, runner: CliRunner, config_with_key: Path, tmp_path: Path):
+        """Test enrich-file passes email to resolve_prospect_id for email-only prospects."""
+        csv_file = tmp_path / "email_only.csv"
+        csv_file.write_text("name,company,linkedin,email\nRobert Soong,,,robert.soong@ahss.org\n")
+
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI, \
+             patch("explorium_cli.commands.prospects.resolve_prospect_id") as mock_resolve:
+            mock_instance = MagicMock()
+            MockAPI.return_value = mock_instance
+            mock_resolve.return_value = "resolved_id_123"
+            mock_instance.bulk_enrich.return_value = {"status": "success", "data": [{"prospect_id": "resolved_id_123"}]}
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "enrich-file",
+                    "-f", str(csv_file),
+                    "--types", "contacts",
+                ]
+            )
+
+            assert result.exit_code == 0
+            mock_resolve.assert_called_once()
+            call_kwargs = mock_resolve.call_args[1]
+            assert call_kwargs["email"] == "robert.soong@ahss.org"
+
+    def test_enrich_file_email_only_does_not_send_empty_match(self, runner: CliRunner, config_with_key: Path, tmp_path: Path):
+        """Test that email-only CSV rows don't result in empty match params."""
+        csv_file = tmp_path / "email_only.csv"
+        csv_file.write_text("email\nrobert.soong@ahss.org\n")
+
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI, \
+             patch("explorium_cli.commands.prospects.resolve_prospect_id") as mock_resolve:
+            mock_instance = MagicMock()
+            MockAPI.return_value = mock_instance
+            mock_resolve.return_value = "resolved_id_456"
+            mock_instance.bulk_enrich.return_value = {"status": "success", "data": []}
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "enrich-file",
+                    "-f", str(csv_file),
+                    "--types", "contacts",
+                ]
+            )
+
+            assert result.exit_code == 0
+            call_kwargs = mock_resolve.call_args[1]
+            # Email must be passed, not dropped
+            assert call_kwargs["email"] == "robert.soong@ahss.org"
+            # Name should NOT be included (email is a strong ID, no company)
+            assert call_kwargs.get("first_name") is None
+            assert call_kwargs.get("last_name") is None
+
+    def test_bulk_enrich_match_file_passes_email(self, runner: CliRunner, config_with_key: Path, tmp_path: Path):
+        """Test bulk-enrich --match-file also passes email to resolve_prospect_id."""
+        match_file = tmp_path / "match.json"
+        match_file.write_text(json.dumps([{"email": "robert.soong@ahss.org"}]))
+
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI, \
+             patch("explorium_cli.commands.prospects.resolve_prospect_id") as mock_resolve:
+            mock_instance = MagicMock()
+            MockAPI.return_value = mock_instance
+            mock_resolve.return_value = "resolved_id_789"
+            mock_instance.bulk_enrich.return_value = {"status": "success", "data": []}
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "bulk-enrich",
+                    "--match-file", str(match_file),
+                    "--types", "contacts",
+                ]
+            )
+
+            assert result.exit_code == 0
+            call_kwargs = mock_resolve.call_args[1]
+            assert call_kwargs["email"] == "robert.soong@ahss.org"
+
+
+class TestProspectSearchMaxPerCompany:
+    """Tests for --max-per-company option on prospects search."""
+
+    def test_max_per_company_calls_parallel_search(self, runner: CliRunner, config_with_key: Path):
+        """Test --max-per-company invokes parallel_prospect_search with correct args."""
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI, \
+             patch("explorium_cli.commands.prospects.parallel_prospect_search") as mock_parallel:
+            mock_instance = MagicMock()
+            MockAPI.return_value = mock_instance
+            mock_parallel.return_value = {"status": "success", "data": [{"prospect_id": "p1"}], "_search_meta": {}}
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "search",
+                    "--business-id", "biz1,biz2",
+                    "--job-level", "cxo",
+                    "--max-per-company", "5"
+                ]
+            )
+
+            assert result.exit_code == 0
+            mock_parallel.assert_called_once()
+            call_args = mock_parallel.call_args
+            # First positional arg: api_method
+            assert call_args[0][0] == mock_instance.search
+            # Second positional arg: business_ids
+            assert call_args[0][1] == ["biz1", "biz2"]
+            # Third positional arg: filters (should NOT contain business_id)
+            parallel_filters = call_args[0][2]
+            assert "business_id" not in parallel_filters
+            assert "job_level" in parallel_filters
+            # total=max_per_company
+            assert call_args[1]["total"] == 5
+
+    def test_max_per_company_requires_business_ids(self, runner: CliRunner, config_with_key: Path):
+        """Test --max-per-company errors without --business-id or --file."""
+        result = runner.invoke(
+            cli,
+            [
+                "--config", str(config_with_key),
+                "prospects", "search",
+                "--max-per-company", "5"
+            ]
+        )
+
+        assert result.exit_code != 0
+        full_output = result.output + (result.stderr or "")
+        assert "--max-per-company requires --business-id or --file" in full_output
+
+    def test_max_per_company_must_be_positive(self, runner: CliRunner, config_with_key: Path):
+        """Test --max-per-company rejects zero and negative values."""
+        result = runner.invoke(
+            cli,
+            [
+                "--config", str(config_with_key),
+                "prospects", "search",
+                "--business-id", "biz1",
+                "--max-per-company", "0"
+            ]
+        )
+
+        assert result.exit_code != 0
+        full_output = result.output + (result.stderr or "")
+        assert "--max-per-company must be positive" in full_output
+
+    def test_max_per_company_with_file(self, runner: CliRunner, config_with_key: Path, tmp_path: Path):
+        """Test --max-per-company works with -f (CSV file of business IDs)."""
+        csv_file = tmp_path / "businesses.csv"
+        csv_file.write_text("business_id,name\nbiz1,Acme\nbiz2,Globex\n")
+
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI, \
+             patch("explorium_cli.commands.prospects.parallel_prospect_search") as mock_parallel:
+            mock_instance = MagicMock()
+            MockAPI.return_value = mock_instance
+            mock_parallel.return_value = {"status": "success", "data": [], "_search_meta": {}}
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "search",
+                    "-f", str(csv_file),
+                    "--max-per-company", "10"
+                ]
+            )
+
+            assert result.exit_code == 0
+            mock_parallel.assert_called_once()
+            call_args = mock_parallel.call_args
+            assert call_args[0][1] == ["biz1", "biz2"]
+            assert call_args[1]["total"] == 10
+
+
 class TestErrorHandling:
     """Tests for error handling."""
 
@@ -1193,3 +1379,161 @@ class TestBulkEnrichCSVFormat:
             # Second batch: 25 IDs
             second_call = mock_instance.bulk_enrich.call_args_list[1]
             assert len(second_call[0][0]) == 25
+
+
+class TestSearchPageSizeFix:
+    """Tests for the fix: single-page mode must pass page_size to the API.
+
+    Previously, single-page mode only passed size=page_size but left the
+    API method's page_size at its default (100), causing 422 errors when
+    size < 100 (e.g. --page-size 3 => size=3, page_size=100 => 422).
+    """
+
+    def test_prospects_search_single_page_passes_page_size(self, runner: CliRunner, config_with_key: Path):
+        """--page-size 3 without --total must send size=3 AND page_size=3."""
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.return_value = {"status": "success", "data": []}
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "search",
+                    "--business-id", "abc123",
+                    "--page-size", "3"
+                ]
+            )
+
+            assert result.exit_code == 0
+            mock_instance.search.assert_called_once()
+            call_kwargs = mock_instance.search.call_args[1]
+            assert call_kwargs["size"] == 3
+            assert call_kwargs["page_size"] == 3
+
+    def test_businesses_search_single_page_passes_page_size(self, runner: CliRunner, config_with_key: Path):
+        """--page-size 5 without --total must send size=5 AND page_size=5."""
+        with patch("explorium_cli.commands.businesses.BusinessesAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.return_value = {"status": "success", "data": []}
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "businesses", "search",
+                    "--country", "us",
+                    "--page-size", "5"
+                ]
+            )
+
+            assert result.exit_code == 0
+            mock_instance.search.assert_called_once()
+            call_kwargs = mock_instance.search.call_args[1]
+            assert call_kwargs["size"] == 5
+            assert call_kwargs["page_size"] == 5
+
+    def test_prospects_search_default_page_size_also_passed(self, runner: CliRunner, config_with_key: Path):
+        """Default --page-size (100) must also send page_size=100."""
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.return_value = {"status": "success", "data": []}
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "search",
+                    "--business-id", "abc123"
+                ]
+            )
+
+            assert result.exit_code == 0
+            call_kwargs = mock_instance.search.call_args[1]
+            assert call_kwargs["size"] == 100
+            assert call_kwargs["page_size"] == 100
+
+
+class TestSearchAPIErrorDisplay:
+    """Tests for the fix: auto-pagination APIError should show response body.
+
+    Previously, the except clause only caught generic Exception and called
+    output_error(str(e)), which lost the APIError.response dict containing
+    the actual API error details.
+    """
+
+    def test_prospects_search_autopaginate_api_error_shows_details(self, runner: CliRunner, config_with_key: Path):
+        """APIError during auto-pagination must show both message and response body."""
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.side_effect = APIError(
+                "Validation failed: size must be >= page_size",
+                status_code=422,
+                response={"detail": "size must be >= page_size"}
+            )
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "search",
+                    "--business-id", "abc123",
+                    "--total", "5"
+                ]
+            )
+
+            assert result.exit_code != 0
+            stderr = result.stderr or ""
+            assert "Validation failed" in stderr
+            assert "size must be >= page_size" in stderr
+
+    def test_businesses_search_autopaginate_api_error_shows_details(self, runner: CliRunner, config_with_key: Path):
+        """APIError during auto-pagination must show both message and response body."""
+        with patch("explorium_cli.commands.businesses.BusinessesAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.side_effect = APIError(
+                "Validation failed: size must be >= page_size",
+                status_code=422,
+                response={"detail": "size must be >= page_size"}
+            )
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "businesses", "search",
+                    "--country", "us",
+                    "--total", "5"
+                ]
+            )
+
+            assert result.exit_code != 0
+            stderr = result.stderr or ""
+            assert "Validation failed" in stderr
+            assert "size must be >= page_size" in stderr
+
+    def test_prospects_search_autopaginate_generic_error_still_works(self, runner: CliRunner, config_with_key: Path):
+        """Non-APIError exceptions should still be caught and displayed."""
+        with patch("explorium_cli.commands.prospects.ProspectsAPI") as MockAPI:
+            mock_instance = MagicMock()
+            mock_instance.search.side_effect = RuntimeError("Connection timeout")
+            MockAPI.return_value = mock_instance
+
+            result = runner.invoke(
+                cli,
+                [
+                    "--config", str(config_with_key),
+                    "prospects", "search",
+                    "--business-id", "abc123",
+                    "--total", "5"
+                ]
+            )
+
+            assert result.exit_code != 0
+            stderr = result.stderr or ""
+            assert "Connection timeout" in stderr

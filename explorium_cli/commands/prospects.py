@@ -10,6 +10,7 @@ from explorium_cli.utils import get_api, handle_api_call, output_options
 from explorium_cli.formatters import output, output_error
 from explorium_cli.api.client import APIError
 from explorium_cli.pagination import paginated_fetch
+from explorium_cli.parallel_search import parallel_prospect_search
 from explorium_cli.batching import parse_csv_ids, parse_csv_prospect_match_params, batched_enrich, batched_match, normalize_linkedin_url
 from explorium_cli.match_utils import (
     prospect_match_options,
@@ -137,7 +138,7 @@ def prospects(ctx: click.Context) -> None:
 @click.option(
     "--file", "-f",
     type=click.File("r"),
-    help="JSON or CSV file with prospects to match"
+    help="JSON or CSV file with prospects to match (extra CSV columns are ignored)"
 )
 @click.option("--summary", is_flag=True, help="Print match statistics to stderr")
 @click.option("--ids-only", is_flag=True, help="Output only matched prospect IDs, one per line")
@@ -248,6 +249,7 @@ def match(
 @click.option("--experience-max", type=int, help="Max total experience (months)")
 @click.option("--role-tenure-min", type=int, help="Min current role tenure (months)")
 @click.option("--role-tenure-max", type=int, help="Max current role tenure (months)")
+@click.option("--max-per-company", type=int, help="Max prospects per company (searches each company in parallel)")
 @click.option("--total", type=int, help="Total records to collect (auto-paginate)")
 @click.option("--page", type=int, default=1, help="Page number (ignored if --total)")
 @click.option("--page-size", type=int, default=100, help="Results per page")
@@ -267,6 +269,7 @@ def search(
     experience_max: Optional[int],
     role_tenure_min: Optional[int],
     role_tenure_max: Optional[int],
+    max_per_company: Optional[int],
     total: Optional[int],
     page: int,
     page_size: int
@@ -284,29 +287,56 @@ def search(
 
     filters = {}
     if business_ids:
-        filters["business_id"] = {"values": business_ids}
+        filters["business_id"] = {"type": "includes", "values": business_ids}
     if job_level:
-        filters["job_level"] = {"values": job_level.split(",")}
+        filters["job_level"] = {"type": "includes", "values": job_level.split(",")}
     if department:
-        filters["job_department"] = {"values": department.split(",")}
+        filters["job_department"] = {"type": "includes", "values": department.split(",")}
     if job_title:
-        filters["job_title"] = {"values": [job_title], "include_related_job_titles": True}
+        filters["job_title"] = {"type": "includes", "values": [job_title], "include_related_job_titles": True}
     if country:
-        filters["country_code"] = {"values": country.split(",")}
+        filters["country_code"] = {"type": "includes", "values": country.split(",")}
     if has_email:
-        filters["has_email"] = {"value": True}
+        filters["has_email"] = {"type": "exists", "value": True}
     if has_phone:
-        filters["has_phone_number"] = {"value": True}
-    if experience_min is not None:
-        filters["experience_min"] = {"value": experience_min}
-    if experience_max is not None:
-        filters["experience_max"] = {"value": experience_max}
-    if role_tenure_min is not None:
-        filters["role_tenure_min"] = {"value": role_tenure_min}
-    if role_tenure_max is not None:
-        filters["role_tenure_max"] = {"value": role_tenure_max}
+        filters["has_phone_number"] = {"type": "exists", "value": True}
+    if experience_min is not None or experience_max is not None:
+        exp_filter: dict = {"type": "range"}
+        if experience_min is not None:
+            exp_filter["gte"] = experience_min
+        if experience_max is not None:
+            exp_filter["lte"] = experience_max
+        filters["total_experience_months"] = exp_filter
+    if role_tenure_min is not None or role_tenure_max is not None:
+        tenure_filter: dict = {"type": "range"}
+        if role_tenure_min is not None:
+            tenure_filter["gte"] = role_tenure_min
+        if role_tenure_max is not None:
+            tenure_filter["lte"] = role_tenure_max
+        filters["current_role_months"] = tenure_filter
 
-    if total:
+    if max_per_company is not None:
+        if not business_ids:
+            raise click.UsageError("--max-per-company requires --business-id or --file")
+        if max_per_company <= 0:
+            raise click.UsageError("--max-per-company must be positive")
+        parallel_filters = {k: v for k, v in filters.items() if k != "business_id"}
+        try:
+            result = parallel_prospect_search(
+                prospects_api.search,
+                business_ids,
+                parallel_filters,
+                total=max_per_company,
+                page_size=page_size,
+            )
+            output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
+        except APIError as e:
+            output_error(e.message, e.response)
+            raise click.Abort()
+        except Exception as e:
+            output_error(str(e))
+            raise click.Abort()
+    elif total:
         # Auto-paginate mode
         if total <= 0:
             raise click.UsageError("Total must be positive")
@@ -318,6 +348,9 @@ def search(
                 filters=filters
             )
             output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
+        except APIError as e:
+            output_error(e.message, e.response)
+            raise click.Abort()
         except Exception as e:
             output_error(str(e))
             raise click.Abort()
@@ -328,6 +361,7 @@ def search(
             prospects_api.search,
             filters,
             size=page_size,
+            page_size=page_size,
             page=page
         )
 
@@ -462,6 +496,9 @@ def bulk_enrich(
         # Read match params and resolve each to IDs
         match_params_list = json.load(match_file)
         match_failures = []
+        total_to_match = len(match_params_list)
+
+        click.echo(f"Matching {total_to_match} prospects...", err=True)
 
         for i, params in enumerate(match_params_list):
             try:
@@ -480,11 +517,15 @@ def bulk_enrich(
                     last_name=last_name,
                     linkedin=params.get("linkedin"),
                     company_name=params.get("company_name"),
-                    min_confidence=min_confidence
+                    email=params.get("email"),
+                    min_confidence=min_confidence,
                 )
                 prospect_ids.append(resolved_id)
             except (MatchError, LowConfidenceError) as e:
                 match_failures.append((i, params, str(e)))
+
+            if (i + 1) % 10 == 0 or (i + 1) == total_to_match:
+                click.echo(f"  {i + 1}/{total_to_match} processed", err=True)
 
         if match_failures:
             click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
@@ -493,8 +534,7 @@ def bulk_enrich(
             if len(match_failures) > 5:
                 click.echo(f"  ... and {len(match_failures) - 5} more", err=True)
 
-        if summary:
-            click.echo(f"Matched: {len(prospect_ids)}/{len(match_params_list)}, Failed: {len(match_failures)}", err=True)
+        click.echo(f"Matched: {len(prospect_ids)}/{total_to_match}, Failed: {len(match_failures)}", err=True)
 
         if not prospect_ids:
             raise click.UsageError("No prospects could be matched")
@@ -525,7 +565,7 @@ def bulk_enrich(
     "--file", "-f",
     required=True,
     type=click.File("r"),
-    help="CSV or JSON file with prospects to match and enrich"
+    help="CSV or JSON file with prospects to match and enrich (extra CSV columns are ignored)"
 )
 @click.option(
     "--types",
@@ -573,6 +613,9 @@ def enrich_file(
     prospect_ids = []
     id_to_input: dict = {}
     match_failures = []
+    total_to_match = len(match_params_list)
+
+    click.echo(f"Matching {total_to_match} prospects...", err=True)
 
     for i, params in enumerate(match_params_list):
         try:
@@ -590,12 +633,16 @@ def enrich_file(
                 last_name=last_name or params.get("last_name"),
                 linkedin=params.get("linkedin"),
                 company_name=params.get("company_name"),
-                min_confidence=min_confidence
+                email=params.get("email"),
+                min_confidence=min_confidence,
             )
             prospect_ids.append(resolved_id)
             id_to_input[resolved_id] = params
         except (MatchError, LowConfidenceError) as e:
             match_failures.append((i, params, str(e)))
+
+        if (i + 1) % 10 == 0 or (i + 1) == total_to_match:
+            click.echo(f"  {i + 1}/{total_to_match} processed", err=True)
 
     if match_failures:
         click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
@@ -604,8 +651,7 @@ def enrich_file(
         if len(match_failures) > 5:
             click.echo(f"  ... and {len(match_failures) - 5} more", err=True)
 
-    if summary:
-        click.echo(f"Matched: {len(prospect_ids)}/{len(match_params_list)}, Failed: {len(match_failures)}", err=True)
+    click.echo(f"Matched: {len(prospect_ids)}/{total_to_match}, Failed: {len(match_failures)}", err=True)
 
     if not prospect_ids:
         raise click.UsageError("No prospects could be matched from file")

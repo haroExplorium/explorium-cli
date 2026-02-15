@@ -377,8 +377,9 @@ class TestBusinessSearchExamples:
             "--country", "us"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us"]}},
+            {"country_code": {"type": "includes", "values": ["us"]}},
             size=100,
+            page_size=100,
             page=1
         )
         assert result.exit_code == 0
@@ -391,8 +392,9 @@ class TestBusinessSearchExamples:
             "--country", "us,ca,gb"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us", "ca", "gb"]}},
+            {"country_code": {"type": "includes", "values": ["us", "ca", "gb"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -405,8 +407,9 @@ class TestBusinessSearchExamples:
             "--size", "51-200"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us"]}, "company_size": {"values": ["51-200"]}},
+            {"country_code": {"type": "includes", "values": ["us"]}, "company_size": {"type": "includes", "values": ["51-200"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -419,8 +422,9 @@ class TestBusinessSearchExamples:
             "--size", "51-200,201-500,501-1000"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us"]}, "company_size": {"values": ["51-200", "201-500", "501-1000"]}},
+            {"country_code": {"type": "includes", "values": ["us"]}, "company_size": {"type": "includes", "values": ["51-200", "201-500", "501-1000"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -433,8 +437,9 @@ class TestBusinessSearchExamples:
             "--revenue", "10M-50M"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us"]}, "company_revenue": {"values": ["10M-50M"]}},
+            {"country_code": {"type": "includes", "values": ["us"]}, "company_revenue": {"type": "includes", "values": ["10M-50M"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -447,8 +452,9 @@ class TestBusinessSearchExamples:
             "--tech", "Python"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us"]}, "company_tech_stack_tech": {"values": ["Python"]}},
+            {"country_code": {"type": "includes", "values": ["us"]}, "company_tech_stack_tech": {"type": "includes", "values": ["Python"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -461,8 +467,9 @@ class TestBusinessSearchExamples:
             "--tech", "Python,React,AWS"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us"]}, "company_tech_stack_tech": {"values": ["Python", "React", "AWS"]}},
+            {"country_code": {"type": "includes", "values": ["us"]}, "company_tech_stack_tech": {"type": "includes", "values": ["Python", "React", "AWS"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -474,8 +481,9 @@ class TestBusinessSearchExamples:
             "--industry", "Software,Technology"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"linkedin_category": {"values": ["Software", "Technology"]}},
+            {"linkedin_category": {"type": "includes", "values": ["Software", "Technology"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -488,8 +496,9 @@ class TestBusinessSearchExamples:
             "--events", "new_funding_round"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us"]}, "events": {"values": ["new_funding_round"], "last_occurrence": 45}},
+            {"country_code": {"type": "includes", "values": ["us"]}, "events": {"type": "includes", "values": ["new_funding_round"], "last_occurrence": 45}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -503,8 +512,9 @@ class TestBusinessSearchExamples:
             "--events-days", "30"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us"]}, "events": {"values": ["new_funding_round", "new_product", "ipo_announcement"], "last_occurrence": 30}},
+            {"country_code": {"type": "includes", "values": ["us"]}, "events": {"type": "includes", "values": ["new_funding_round", "new_product", "ipo_announcement"], "last_occurrence": 30}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -522,13 +532,14 @@ class TestBusinessSearchExamples:
         ])
         mock_businesses_api.search.assert_called_once_with(
             {
-                "country_code": {"values": ["us"]},
-                "company_size": {"values": ["51-200", "201-500"]},
-                "company_revenue": {"values": ["5M-10M", "10M-50M"]},
-                "company_tech_stack_tech": {"values": ["Python", "AWS"]},
-                "events": {"values": ["new_funding_round"], "last_occurrence": 60}
+                "country_code": {"type": "includes", "values": ["us"]},
+                "company_size": {"type": "includes", "values": ["51-200", "201-500"]},
+                "company_revenue": {"type": "includes", "values": ["5M-10M", "10M-50M"]},
+                "company_tech_stack_tech": {"type": "includes", "values": ["Python", "AWS"]},
+                "events": {"type": "includes", "values": ["new_funding_round"], "last_occurrence": 60}
             },
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -542,8 +553,9 @@ class TestBusinessSearchExamples:
             "--page-size", "25"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us"]}},
+            {"country_code": {"type": "includes", "values": ["us"]}},
             size=25,
+            page_size=25,
             page=1
         )
 
@@ -557,8 +569,9 @@ class TestBusinessSearchExamples:
             "--page-size", "25"
         ])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us"]}},
+            {"country_code": {"type": "includes", "values": ["us"]}},
             size=25,
+            page_size=25,
             page=2
         )
 
@@ -571,8 +584,9 @@ class TestBusinessSearchExamples:
             "--country", "us",
             "--size", "51-200"])
         mock_businesses_api.search.assert_called_once_with(
-            {"country_code": {"values": ["us"]}, "company_size": {"values": ["51-200"]}},
+            {"country_code": {"type": "includes", "values": ["us"]}, "company_size": {"type": "includes", "values": ["51-200"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -938,8 +952,9 @@ class TestProspectSearchExamples:
             "--business-id", "8adce3ca1cef0c986b22310e369a0793"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["8adce3ca1cef0c986b22310e369a0793"]}},
+            {"business_id": {"type": "includes", "values": ["8adce3ca1cef0c986b22310e369a0793"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -951,8 +966,9 @@ class TestProspectSearchExamples:
             "--business-id", "id1,id2,id3"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1", "id2", "id3"]}},
+            {"business_id": {"type": "includes", "values": ["id1", "id2", "id3"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -965,8 +981,9 @@ class TestProspectSearchExamples:
             "--job-level", "cxo"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "job_level": {"values": ["cxo"]}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "job_level": {"type": "includes", "values": ["cxo"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -979,8 +996,9 @@ class TestProspectSearchExamples:
             "--job-level", "cxo,vp,director"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "job_level": {"values": ["cxo", "vp", "director"]}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "job_level": {"type": "includes", "values": ["cxo", "vp", "director"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -993,8 +1011,9 @@ class TestProspectSearchExamples:
             "--department", "Engineering"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "job_department": {"values": ["Engineering"]}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "job_department": {"type": "includes", "values": ["Engineering"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -1007,8 +1026,9 @@ class TestProspectSearchExamples:
             "--department", "Engineering,Product,Sales"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "job_department": {"values": ["Engineering", "Product", "Sales"]}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "job_department": {"type": "includes", "values": ["Engineering", "Product", "Sales"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -1021,8 +1041,9 @@ class TestProspectSearchExamples:
             "--job-title", "Software Engineer"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "job_title": {"values": ["Software Engineer"], "include_related_job_titles": True}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "job_title": {"type": "includes", "values": ["Software Engineer"], "include_related_job_titles": True}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -1035,8 +1056,9 @@ class TestProspectSearchExamples:
             "--has-email"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "has_email": {"value": True}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "has_email": {"type": "exists", "value": True}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -1049,8 +1071,9 @@ class TestProspectSearchExamples:
             "--has-phone"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "has_phone_number": {"value": True}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "has_phone_number": {"type": "exists", "value": True}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -1064,8 +1087,9 @@ class TestProspectSearchExamples:
             "--has-phone"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "has_email": {"value": True}, "has_phone_number": {"value": True}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "has_email": {"type": "exists", "value": True}, "has_phone_number": {"type": "exists", "value": True}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -1078,8 +1102,9 @@ class TestProspectSearchExamples:
             "--experience-min", "60"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "experience_min": {"value": 60}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "total_experience_months": {"type": "range", "gte": 60}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -1093,8 +1118,9 @@ class TestProspectSearchExamples:
             "--experience-max", "60"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "experience_min": {"value": 24}, "experience_max": {"value": 60}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "total_experience_months": {"type": "range", "gte": 24, "lte": 60}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -1107,8 +1133,9 @@ class TestProspectSearchExamples:
             "--role-tenure-max", "12"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "role_tenure_max": {"value": 12}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "current_role_months": {"type": "range", "lte": 12}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -1121,8 +1148,9 @@ class TestProspectSearchExamples:
             "--country", "us"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}, "country_code": {"values": ["us"]}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "country_code": {"type": "includes", "values": ["us"]}},
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -1138,12 +1166,13 @@ class TestProspectSearchExamples:
             "--has-email"])
         mock_prospects_api.search.assert_called_once_with(
             {
-                "business_id": {"values": ["id1"]},
-                "job_level": {"values": ["cxo", "vp", "director"]},
-                "job_department": {"values": ["Engineering"]},
-                "has_email": {"value": True}
+                "business_id": {"type": "includes", "values": ["id1"]},
+                "job_level": {"type": "includes", "values": ["cxo", "vp", "director"]},
+                "job_department": {"type": "includes", "values": ["Engineering"]},
+                "has_email": {"type": "exists", "value": True}
             },
             size=100,
+            page_size=100,
             page=1
         )
 
@@ -1157,8 +1186,9 @@ class TestProspectSearchExamples:
             "--page-size", "25"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"values": ["id1"]}},
+            {"business_id": {"type": "includes", "values": ["id1"]}},
             size=25,
+            page_size=25,
             page=1
         )
 

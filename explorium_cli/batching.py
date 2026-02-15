@@ -343,6 +343,9 @@ def batched_match(
     """
     total = len(items)
     if total <= batch_size:
+        if show_progress:
+            click.echo(f"Matching {total} {entity_name}...", err=True)
+
         last_error = None
         delay = BATCH_RETRY_BASE_DELAY
 
@@ -358,6 +361,11 @@ def batched_match(
                             for k, v in items[j].items():
                                 match_row[f"input_{k}"] = v
                 result["_match_meta"] = _build_match_meta(matched, total, id_key)
+                if show_progress:
+                    click.echo(
+                        click.style(f"  ✓ {len(matched)} matched", fg="green"),
+                        err=True,
+                    )
                 return result
 
             except Exception as e:
@@ -476,7 +484,7 @@ BATCH_RETRY_BASE_DELAY = 5.0
 BATCH_RETRY_BACKOFF = 2.0
 
 
-RETRYABLE_STATUS_CODES = {422, 429, 500, 502, 503, 504}
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 def _is_retryable_api_error(error: Exception) -> bool:
@@ -536,6 +544,9 @@ def batched_enrich(
         batch_size: Max IDs per API call (default: 50)
         entity_name: Name for progress messages (e.g., "prospects", "businesses")
         show_progress: Whether to show progress to stderr
+        id_key: When set (e.g. "prospect_id"), inject the ID into each result
+                record that doesn't already include it. Ensures CSV output
+                contains the entity ID column.
         **api_kwargs: Additional keyword args passed to API method
 
     Returns:
@@ -556,11 +567,17 @@ def batched_enrich(
         batch_ids = ids[start_idx:end_idx]
         batch_count = len(batch_ids)
 
-        if show_progress and num_batches > 1:
-            click.echo(
-                f"Batch {batch_num + 1}/{num_batches}: Enriching {batch_count} {entity_name}...",
-                err=True
-            )
+        if show_progress:
+            if num_batches > 1:
+                click.echo(
+                    f"Batch {batch_num + 1}/{num_batches}: Enriching {batch_count} {entity_name}...",
+                    err=True
+                )
+            else:
+                click.echo(
+                    f"Enriching {batch_count} {entity_name}...",
+                    err=True
+                )
 
         last_error = None
         delay = BATCH_RETRY_BASE_DELAY
@@ -587,9 +604,9 @@ def batched_enrich(
 
                 successful_count += batch_count
 
-                if show_progress and num_batches > 1:
+                if show_progress:
                     click.echo(
-                        click.style(" ✓", fg="green"),
+                        click.style(" done", fg="green"),
                         err=True
                     )
                 last_error = None
@@ -638,7 +655,7 @@ def batched_enrich(
                     )
             raise click.Abort()
 
-    if show_progress and num_batches > 1:
+    if show_progress:
         click.echo(f"Enriched {successful_count} {entity_name} total", err=True)
 
     # Return combined result in same format as single API call

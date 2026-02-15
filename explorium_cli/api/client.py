@@ -21,7 +21,7 @@ class APIError(Exception):
 
 
 # HTTP status codes that should trigger a retry
-RETRYABLE_STATUS_CODES = {422, 429, 500, 502, 503, 504}
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 class ExploriumAPI:
@@ -127,12 +127,32 @@ class ExploriumAPI:
                 last_exception = e
                 if not self._should_retry(e) or attempt >= self.max_retries:
                     error_response: Optional[dict] = None
+                    error_body: Optional[str] = None
                     try:
                         error_response = e.response.json()
                     except (ValueError, AttributeError):
-                        pass
+                        try:
+                            error_body = e.response.text
+                        except AttributeError:
+                            pass
+
+                    # Build a message that always includes the API's reason
+                    status = e.response.status_code if e.response else "unknown"
+                    msg = f"API request failed (HTTP {status}): {url}"
+                    if error_response:
+                        # Pull the most common error-message keys from JSON
+                        detail = (
+                            error_response.get("detail")
+                            or error_response.get("message")
+                            or error_response.get("error")
+                        )
+                        if detail:
+                            msg += f"\n  Reason: {detail}"
+                    elif error_body:
+                        msg += f"\n  Response: {error_body[:500]}"
+
                     raise APIError(
-                        f"API request failed: {e}",
+                        msg,
                         status_code=e.response.status_code if e.response else None,
                         response=error_response
                     )

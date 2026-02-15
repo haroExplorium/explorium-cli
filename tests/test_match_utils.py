@@ -327,6 +327,96 @@ class TestResolveProspectId:
         assert len(exc_info.value.suggestions) == 1
 
 
+class TestResolveProspectIdEmail:
+    """Tests for resolve_prospect_id with email parameter (bug fix).
+
+    Email-only prospects were silently matched with empty params because
+    resolve_prospect_id didn't accept an email parameter.
+    """
+
+    @pytest.fixture
+    def mock_prospects_api(self) -> ProspectsAPI:
+        mock_client = MagicMock()
+        return ProspectsAPI(mock_client)
+
+    def test_email_only_sends_email_to_match_api(self, mock_prospects_api: ProspectsAPI):
+        """Email-only match should send email in match params."""
+        from explorium_cli.match_utils import resolve_prospect_id
+
+        mock_prospects_api.client.post.return_value = {
+            "status": "success",
+            "data": [{"prospect_id": "email_prospect_1", "match_confidence": 0.95}]
+        }
+
+        result = resolve_prospect_id(
+            mock_prospects_api,
+            email="robert.soong@ahss.org"
+        )
+
+        assert result == "email_prospect_1"
+        call_args = mock_prospects_api.client.post.call_args
+        payload = call_args[1]["json"]["prospects_to_match"][0]
+        assert payload["email"] == "robert.soong@ahss.org"
+        # Name should NOT be included (email is a strong ID, no company)
+        assert "full_name" not in payload
+
+    def test_email_is_strong_id_strips_name_without_company(self, mock_prospects_api: ProspectsAPI):
+        """Email should be treated as a strong ID — name dropped when no company."""
+        from explorium_cli.match_utils import resolve_prospect_id
+
+        mock_prospects_api.client.post.return_value = {
+            "status": "success",
+            "data": [{"prospect_id": "email_prospect_2", "match_confidence": 0.95}]
+        }
+
+        resolve_prospect_id(
+            mock_prospects_api,
+            first_name="Robert",
+            last_name="Soong",
+            email="robert.soong@ahss.org"
+        )
+
+        payload = mock_prospects_api.client.post.call_args[1]["json"]["prospects_to_match"][0]
+        assert payload["email"] == "robert.soong@ahss.org"
+        assert "full_name" not in payload
+
+    def test_email_with_company_includes_name(self, mock_prospects_api: ProspectsAPI):
+        """Email + company_name should include name in match params."""
+        from explorium_cli.match_utils import resolve_prospect_id
+
+        mock_prospects_api.client.post.return_value = {
+            "status": "success",
+            "data": [{"prospect_id": "email_prospect_3", "match_confidence": 0.95}]
+        }
+
+        resolve_prospect_id(
+            mock_prospects_api,
+            first_name="Robert",
+            last_name="Soong",
+            email="robert.soong@ahss.org",
+            company_name="AHSS"
+        )
+
+        payload = mock_prospects_api.client.post.call_args[1]["json"]["prospects_to_match"][0]
+        assert payload["email"] == "robert.soong@ahss.org"
+        assert payload["full_name"] == "Robert Soong"
+        assert payload["company_name"] == "AHSS"
+
+    def test_validate_accepts_email_only(self):
+        """validate_prospect_match_params should accept email as sole identifier."""
+        from explorium_cli.match_utils import validate_prospect_match_params
+
+        # Should NOT raise
+        validate_prospect_match_params(
+            prospect_id=None,
+            first_name=None,
+            last_name=None,
+            linkedin=None,
+            company_name=None,
+            email="test@example.com"
+        )
+
+
 class TestBusinessMatchOptions:
     """Tests for business_match_options decorator."""
 

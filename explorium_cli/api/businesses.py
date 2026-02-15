@@ -1,6 +1,6 @@
 """Business API client for Explorium."""
 
-from typing import Any, Optional
+from typing import Any
 
 from explorium_cli.api.client import ExploriumAPI
 
@@ -322,6 +322,66 @@ class BusinessesAPI:
             "/businesses/firmographics/bulk_enrich",
             json={"business_ids": business_ids}
         )
+
+    def _bulk_enrich_endpoint(self, endpoint: str, business_ids: list[str]) -> dict:
+        """Call a bulk enrichment endpoint."""
+        return self.client.post(endpoint, json={"business_ids": business_ids})
+
+    def bulk_enrich_tech(self, business_ids: list[str]) -> dict:
+        """Bulk enrich technographics."""
+        return self._bulk_enrich_endpoint("/businesses/technographics/bulk_enrich", business_ids)
+
+    def bulk_enrich_financial(self, business_ids: list[str]) -> dict:
+        """Bulk enrich financial indicators."""
+        return self._bulk_enrich_endpoint("/businesses/financial_indicators/bulk_enrich", business_ids)
+
+    def bulk_enrich_funding(self, business_ids: list[str]) -> dict:
+        """Bulk enrich funding data."""
+        return self._bulk_enrich_endpoint("/businesses/funding_and_acquisition/bulk_enrich", business_ids)
+
+    def bulk_enrich_workforce(self, business_ids: list[str]) -> dict:
+        """Bulk enrich workforce trends."""
+        return self._bulk_enrich_endpoint("/businesses/workforce_trends/bulk_enrich", business_ids)
+
+    def bulk_enrich_traffic(self, business_ids: list[str]) -> dict:
+        """Bulk enrich website traffic."""
+        return self._bulk_enrich_endpoint("/businesses/website_traffic/bulk_enrich", business_ids)
+
+    def bulk_enrich_social(self, business_ids: list[str]) -> dict:
+        """Bulk enrich LinkedIn posts."""
+        return self._bulk_enrich_endpoint("/businesses/linkedin_posts/bulk_enrich", business_ids)
+
+    def bulk_enrich_ratings(self, business_ids: list[str]) -> dict:
+        """Bulk enrich employee ratings."""
+        return self._bulk_enrich_endpoint("/businesses/company_ratings_by_employees/bulk_enrich", business_ids)
+
+    def bulk_enrich_challenges(self, business_ids: list[str]) -> dict:
+        """Bulk enrich 10-K challenges."""
+        return self._bulk_enrich_endpoint("/businesses/pc_business_challenges_10k/bulk_enrich", business_ids)
+
+    def bulk_enrich_competitive(self, business_ids: list[str]) -> dict:
+        """Bulk enrich 10-K competitive landscape."""
+        return self._bulk_enrich_endpoint("/businesses/pc_competitive_landscape_10k/bulk_enrich", business_ids)
+
+    def bulk_enrich_strategic(self, business_ids: list[str]) -> dict:
+        """Bulk enrich 10-K strategic insights."""
+        return self._bulk_enrich_endpoint("/businesses/pc_strategy_10k/bulk_enrich", business_ids)
+
+    def bulk_enrich_website_changes(self, business_ids: list[str]) -> dict:
+        """Bulk enrich website changes."""
+        return self._bulk_enrich_endpoint("/businesses/website_changes/bulk_enrich", business_ids)
+
+    def bulk_enrich_webstack(self, business_ids: list[str]) -> dict:
+        """Bulk enrich webstack."""
+        return self._bulk_enrich_endpoint("/businesses/webstack/bulk_enrich", business_ids)
+
+    def bulk_enrich_hierarchy(self, business_ids: list[str]) -> dict:
+        """Bulk enrich company hierarchy."""
+        return self._bulk_enrich_endpoint("/businesses/company_hierarchies/bulk_enrich", business_ids)
+
+    def bulk_enrich_intent(self, business_ids: list[str]) -> dict:
+        """Bulk enrich Bombora intent."""
+        return self._bulk_enrich_endpoint("/businesses/bombora_intent/bulk_enrich", business_ids)
 
     def lookalike(self, business_id: str) -> dict:
         """

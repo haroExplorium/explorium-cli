@@ -2,11 +2,13 @@
 
 import click
 
+from explorium_cli import __version__
 from explorium_cli.config import load_config
 from explorium_cli.api.client import ExploriumAPI
 
 
 @click.group()
+@click.version_option(version=__version__, prog_name="explorium")
 @click.option(
     "--config", "-c",
     help="Path to config file",

@@ -1,4 +1,4 @@
-"""Tests for batched_enrich id_key injection."""
+"""Tests for batching module — batched_enrich id_key injection."""
 
 import pytest
 from unittest.mock import MagicMock
@@ -7,123 +7,133 @@ from explorium_cli.batching import batched_enrich
 
 
 class TestBatchedEnrichIdKey:
-    """Tests for id_key parameter in batched_enrich."""
+    """Tests for batched_enrich id_key parameter."""
 
     def test_injects_id_when_missing_from_response(self):
-        """Test that entity ID is injected when API doesn't return it."""
-        mock_api = MagicMock()
-        mock_api.return_value = {
+        """When API response records lack the ID, inject it from the input list."""
+        api_method = MagicMock(return_value={
             "status": "success",
             "data": [
-                {"email": "a@b.com"},
-                {"email": "c@d.com"},
-            ],
-        }
+                {"data": {"emails": [{"address": "a@b.com"}]}},
+                {"data": {"emails": [{"address": "c@d.com"}]}},
+            ]
+        })
 
         result = batched_enrich(
-            mock_api,
-            ids=["p1", "p2"],
+            api_method, ["p1", "p2"],
+            entity_name="prospects",
             id_key="prospect_id",
             show_progress=False,
         )
 
-        data = result["data"]
-        assert data[0]["prospect_id"] == "p1"
-        assert data[1]["prospect_id"] == "p2"
+        records = result["data"]
+        assert len(records) == 2
+        assert records[0]["prospect_id"] == "p1"
+        assert records[1]["prospect_id"] == "p2"
+        # Original data preserved
+        assert records[0]["data"]["emails"][0]["address"] == "a@b.com"
 
     def test_does_not_overwrite_existing_id(self):
-        """Test that existing ID in API response is not overwritten."""
-        mock_api = MagicMock()
-        mock_api.return_value = {
+        """When API response already includes the ID, don't overwrite it."""
+        api_method = MagicMock(return_value={
             "status": "success",
             "data": [
-                {"prospect_id": "existing_id", "email": "a@b.com"},
-            ],
-        }
+                {"prospect_id": "api_id_1", "data": {"emails": []}},
+                {"prospect_id": "api_id_2", "data": {"emails": []}},
+            ]
+        })
 
         result = batched_enrich(
-            mock_api,
-            ids=["p1"],
+            api_method, ["input_id_1", "input_id_2"],
+            entity_name="prospects",
             id_key="prospect_id",
             show_progress=False,
         )
 
-        assert result["data"][0]["prospect_id"] == "existing_id"
+        records = result["data"]
+        assert records[0]["prospect_id"] == "api_id_1"
+        assert records[1]["prospect_id"] == "api_id_2"
 
     def test_no_injection_without_id_key(self):
-        """Test backward compatibility: no injection when id_key is empty."""
-        mock_api = MagicMock()
-        mock_api.return_value = {
+        """When id_key is not set, don't inject anything (backward compat)."""
+        api_method = MagicMock(return_value={
             "status": "success",
-            "data": [{"email": "a@b.com"}],
-        }
+            "data": [
+                {"data": {"emails": []}},
+            ]
+        })
 
         result = batched_enrich(
-            mock_api,
-            ids=["p1"],
+            api_method, ["p1"],
+            entity_name="prospects",
             show_progress=False,
         )
 
-        assert "prospect_id" not in result["data"][0]
+        records = result["data"]
+        assert "prospect_id" not in records[0]
 
     def test_no_injection_when_count_mismatch(self):
-        """Test that injection is skipped when result count doesn't match batch."""
-        mock_api = MagicMock()
-        mock_api.return_value = {
+        """When result count doesn't match input count, skip injection."""
+        api_method = MagicMock(return_value={
             "status": "success",
-            "data": [{"email": "a@b.com"}],  # 1 result for 2 IDs
-        }
+            "data": [
+                {"data": {"emails": []}},
+            ]
+        })
 
         result = batched_enrich(
-            mock_api,
-            ids=["p1", "p2"],
+            api_method, ["p1", "p2"],  # 2 IDs but 1 result
+            entity_name="prospects",
             id_key="prospect_id",
             show_progress=False,
         )
 
-        # Should not inject because count mismatch (1 != 2)
-        assert "prospect_id" not in result["data"][0]
+        records = result["data"]
+        assert len(records) == 1
+        assert "prospect_id" not in records[0]
 
     def test_injection_works_across_batches(self):
-        """Test that ID injection works correctly across multiple batches."""
-        mock_api = MagicMock()
-        mock_api.side_effect = [
-            {
-                "status": "success",
-                "data": [{"email": "a@b.com"}, {"email": "c@d.com"}],
-            },
-            {
-                "status": "success",
-                "data": [{"email": "e@f.com"}],
-            },
-        ]
+        """ID injection works correctly across multiple batches."""
+        api_method = MagicMock(side_effect=[
+            {"status": "success", "data": [
+                {"data": {"emails": []}},
+                {"data": {"emails": []}},
+            ]},
+            {"status": "success", "data": [
+                {"data": {"emails": []}},
+            ]},
+        ])
 
         result = batched_enrich(
-            mock_api,
-            ids=["p1", "p2", "p3"],
+            api_method, ["p1", "p2", "p3"],
             batch_size=2,
+            entity_name="prospects",
             id_key="prospect_id",
             show_progress=False,
         )
 
-        assert len(result["data"]) == 3
-        assert result["data"][0]["prospect_id"] == "p1"
-        assert result["data"][1]["prospect_id"] == "p2"
-        assert result["data"][2]["prospect_id"] == "p3"
+        records = result["data"]
+        assert len(records) == 3
+        assert records[0]["prospect_id"] == "p1"
+        assert records[1]["prospect_id"] == "p2"
+        assert records[2]["prospect_id"] == "p3"
 
     def test_business_id_injection(self):
-        """Test that id_key works with business_id too."""
-        mock_api = MagicMock()
-        mock_api.return_value = {
+        """Works with business_id key too."""
+        api_method = MagicMock(return_value={
             "status": "success",
-            "data": [{"name": "Acme Corp"}],
-        }
+            "data": [
+                {"name": "Acme Corp", "revenue": "10M"},
+            ]
+        })
 
         result = batched_enrich(
-            mock_api,
-            ids=["b1"],
+            api_method, ["b1"],
+            entity_name="businesses",
             id_key="business_id",
             show_progress=False,
         )
 
-        assert result["data"][0]["business_id"] == "b1"
+        records = result["data"]
+        assert records[0]["business_id"] == "b1"
+        assert records[0]["name"] == "Acme Corp"

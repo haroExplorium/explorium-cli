@@ -103,7 +103,7 @@ def businesses(ctx: click.Context) -> None:
 @click.option(
     "--file", "-f",
     type=click.File("r"),
-    help="JSON or CSV file with businesses to match"
+    help="JSON or CSV file with businesses to match (extra CSV columns are ignored)"
 )
 @click.option("--summary", is_flag=True, help="Print match statistics to stderr")
 @click.option("--ids-only", is_flag=True, help="Output only matched business IDs, one per line")
@@ -206,17 +206,18 @@ def search(
 
     filters = {}
     if country:
-        filters["country_code"] = {"values": country.split(",")}
+        filters["country_code"] = {"type": "includes", "values": country.split(",")}
     if size:
-        filters["company_size"] = {"values": size.split(",")}
+        filters["company_size"] = {"type": "includes", "values": size.split(",")}
     if revenue:
-        filters["company_revenue"] = {"values": revenue.split(",")}
+        filters["company_revenue"] = {"type": "includes", "values": revenue.split(",")}
     if industry:
-        filters["linkedin_category"] = {"values": industry.split(",")}
+        filters["linkedin_category"] = {"type": "includes", "values": industry.split(",")}
     if tech:
-        filters["company_tech_stack_tech"] = {"values": tech.split(",")}
+        filters["company_tech_stack_tech"] = {"type": "includes", "values": tech.split(",")}
     if events:
         filters["events"] = {
+            "type": "includes",
             "values": events.split(","),
             "last_occurrence": events_days
         }
@@ -233,6 +234,9 @@ def search(
                 filters=filters
             )
             output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
+        except APIError as e:
+            output_error(e.message, e.response)
+            raise click.Abort()
         except Exception as e:
             output_error(str(e))
             raise click.Abort()
@@ -243,6 +247,7 @@ def search(
             businesses_api.search,
             filters,
             size=page_size,
+            page_size=page_size,
             page=page
         )
 
@@ -645,6 +650,9 @@ def bulk_enrich(
         # Read match params and resolve each to IDs
         match_params_list = json.load(match_file)
         match_failures = []
+        total_to_match = len(match_params_list)
+
+        click.echo(f"Matching {total_to_match} businesses...", err=True)
 
         for i, params in enumerate(match_params_list):
             try:
@@ -659,6 +667,9 @@ def bulk_enrich(
             except (MatchError, LowConfidenceError) as e:
                 match_failures.append((i, params, str(e)))
 
+            if (i + 1) % 10 == 0 or (i + 1) == total_to_match:
+                click.echo(f"  {i + 1}/{total_to_match} processed", err=True)
+
         if match_failures:
             click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
             for idx, params, error in match_failures[:5]:
@@ -666,8 +677,7 @@ def bulk_enrich(
             if len(match_failures) > 5:
                 click.echo(f"  ... and {len(match_failures) - 5} more", err=True)
 
-        if summary:
-            click.echo(f"Matched: {len(business_ids)}/{len(match_params_list)}, Failed: {len(match_failures)}", err=True)
+        click.echo(f"Matched: {len(business_ids)}/{total_to_match}, Failed: {len(match_failures)}", err=True)
 
         if not business_ids:
             raise click.UsageError("No businesses could be matched")
@@ -690,6 +700,20 @@ def _resolve_business_enrichment_methods(types_str, businesses_api):
     """Parse comma-separated --types and return list of (label, api_method) pairs."""
     valid = {
         "firmographics": ("firmographics", businesses_api.bulk_enrich),
+        "tech": ("tech", businesses_api.bulk_enrich_tech),
+        "financial": ("financial", businesses_api.bulk_enrich_financial),
+        "funding": ("funding", businesses_api.bulk_enrich_funding),
+        "workforce": ("workforce", businesses_api.bulk_enrich_workforce),
+        "traffic": ("traffic", businesses_api.bulk_enrich_traffic),
+        "social": ("social", businesses_api.bulk_enrich_social),
+        "ratings": ("ratings", businesses_api.bulk_enrich_ratings),
+        "challenges": ("challenges", businesses_api.bulk_enrich_challenges),
+        "competitive": ("competitive", businesses_api.bulk_enrich_competitive),
+        "strategic": ("strategic", businesses_api.bulk_enrich_strategic),
+        "website-changes": ("website-changes", businesses_api.bulk_enrich_website_changes),
+        "webstack": ("webstack", businesses_api.bulk_enrich_webstack),
+        "hierarchy": ("hierarchy", businesses_api.bulk_enrich_hierarchy),
+        "intent": ("intent", businesses_api.bulk_enrich_intent),
     }
     requested = [t.strip().lower() for t in types_str.split(",")]
 
@@ -699,8 +723,9 @@ def _resolve_business_enrichment_methods(types_str, businesses_api):
     methods = []
     for t in requested:
         if t not in valid:
+            valid_names = ", ".join(valid.keys())
             raise click.UsageError(
-                f"Unknown enrichment type '{t}'. Valid: firmographics, all"
+                f"Unknown enrichment type '{t}'. Valid: {valid_names}, all"
             )
         methods.append(valid[t])
     return methods
@@ -711,12 +736,12 @@ def _resolve_business_enrichment_methods(types_str, businesses_api):
     "--file", "-f",
     required=True,
     type=click.File("r"),
-    help="CSV or JSON file with businesses to match and enrich"
+    help="CSV or JSON file with businesses to match and enrich (extra CSV columns are ignored)"
 )
 @click.option(
     "--types",
     default="firmographics",
-    help="Enrichment types, comma-separated: firmographics, all"
+    help="Enrichment types, comma-separated: firmographics, tech, financial, funding, workforce, traffic, social, ratings, challenges, competitive, strategic, website-changes, webstack, hierarchy, intent, all"
 )
 @click.option(
     "--min-confidence",
@@ -737,11 +762,12 @@ def enrich_file(
     """Match businesses from a file and enrich in one pass.
 
     Reads CSV or JSON file with match parameters, resolves each to a
-    business ID, then bulk-enriches all matched businesses.
+    business ID, then enriches all matched businesses.
 
     Use --types to select enrichment (comma-separated):
-      firmographics — company data (default)
-      all           — all available types
+      firmographics, tech, financial, funding, workforce, traffic,
+      social, ratings, challenges, competitive, strategic,
+      website-changes, webstack, hierarchy, intent, all
     """
     api = get_api(ctx)
     businesses_api = BusinessesAPI(api)
@@ -756,6 +782,9 @@ def enrich_file(
     business_ids = []
     id_to_input: dict = {}
     match_failures = []
+    total_to_match = len(match_params_list)
+
+    click.echo(f"Matching {total_to_match} businesses...", err=True)
 
     for i, params in enumerate(match_params_list):
         try:
@@ -771,6 +800,10 @@ def enrich_file(
         except (MatchError, LowConfidenceError) as e:
             match_failures.append((i, params, str(e)))
 
+        # Progress every 10 items or on last item
+        if (i + 1) % 10 == 0 or (i + 1) == total_to_match:
+            click.echo(f"  {i + 1}/{total_to_match} processed", err=True)
+
     if match_failures:
         click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
         for idx, params, error in match_failures[:5]:
@@ -778,8 +811,7 @@ def enrich_file(
         if len(match_failures) > 5:
             click.echo(f"  ... and {len(match_failures) - 5} more", err=True)
 
-    if summary:
-        click.echo(f"Matched: {len(business_ids)}/{len(match_params_list)}, Failed: {len(match_failures)}", err=True)
+    click.echo(f"Matched: {len(business_ids)}/{total_to_match}, Failed: {len(match_failures)}", err=True)
 
     if not business_ids:
         raise click.UsageError("No businesses could be matched from file")
@@ -801,6 +833,8 @@ def enrich_file(
     enriched_data = result.get("data", [])
     if isinstance(enriched_data, list):
         for row in enriched_data:
+            if not isinstance(row, dict):
+                continue
             bid = row.get("business_id", "")
             if bid in id_to_input:
                 for k, v in id_to_input[bid].items():

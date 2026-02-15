@@ -84,11 +84,11 @@ See `commands-reference.md` in this skill directory for the full command referen
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
 | `prospects match` | Match people to IDs | `--first-name`, `--last-name`, `--company-name`, `--email`, `--linkedin`, `-f FILE`, `--summary` |
-| `prospects search` | Search prospects | `--business-id`, `--job-level`, `--department`, `--has-email`, `--total N` |
+| `prospects search` | Search prospects | `--business-id`, `-f FILE`, `--job-level`, `--department`, `--has-email`, `--total N`, `--max-per-company N` |
 | `prospects enrich contacts` | Emails & phones (single) | `--id`, `--first-name`, `--last-name`, `--company-name`, `--email`, `--linkedin` |
 | `prospects enrich social` | LinkedIn posts | Same ID resolution options |
 | `prospects enrich profile` | Professional profile | Same ID resolution options |
-| `prospects bulk-enrich` | Bulk enrich | `--ids`, `-f FILE`, `--match-file`, `--types {contacts,profile,all}`, `--summary` |
+| `prospects bulk-enrich` | Bulk enrich (output has only prospect_id + enrichment fields; use `enrich-file` to preserve input columns) | `--ids`, `-f FILE`, `--match-file`, `--types {contacts,profile,all}`, `--summary` |
 | `prospects enrich-file` | Match + enrich in one | `-f FILE`, `--types {contacts,profile,all}`, `--summary` |
 | `prospects autocomplete` | Name suggestions | `--query` |
 | `prospects statistics` | Aggregated insights | `--business-id`, `--group-by` |
@@ -121,6 +121,19 @@ explorium businesses enrich --name "Acme Corp" -o table
 explorium prospects enrich contacts --first-name John --last-name Doe --company-name "Acme Corp"
 ```
 
+### Autocomplete: discover valid filter values
+
+Use autocomplete to explore large taxonomies (job levels, departments, NAICS codes, Google categories, etc.) when you're unsure which exact value to pass to a search filter.
+
+```bash
+# What job departments are available?
+explorium prospects autocomplete -q "engineer"
+# What business categories exist for "software"?
+explorium businesses autocomplete -q "software"
+```
+
+Useful before `search` to find the exact taxonomy values the API accepts, so you can pass them to `--department`, `--job-level`, `--industry`, etc.
+
 ### Bulk: CSV in, enriched CSV out (recommended for files)
 
 ```bash
@@ -145,6 +158,35 @@ explorium prospects bulk-enrich -f matched.csv --types all -o csv --output-file 
 explorium businesses search --country US --tech "Salesforce" --total 200 -o csv --output-file results.csv
 ```
 
+### Search and enrich prospects
+
+```bash
+# Step 1: Search for prospects at a company
+explorium prospects search --business-id BIZ123 --job-level cxo,vp --has-email --total 50 -o csv --output-file prospects.csv
+# Step 2: Enrich with contact info (reads prospect_id column, ignores extras)
+explorium prospects bulk-enrich -f prospects.csv --types contacts -o csv --output-file enriched.csv
+```
+
+### Full pipeline: companies → filter → prospects → contacts
+
+```bash
+# 1. Find target companies
+explorium businesses search --country US --tech "Salesforce" --total 100 -o csv --output-file companies.csv
+# 2. Match to get business IDs (reads name/domain columns, ignores extras)
+explorium businesses match -f companies.csv --ids-only --output-file biz_ids.csv
+# 3. Search prospects across those companies
+explorium prospects search -f biz_ids.csv --job-level cxo,vp --has-email --total 200 -o csv --output-file prospects.csv
+# 4. Enrich with contacts
+explorium prospects bulk-enrich -f prospects.csv --types all -o csv --output-file enriched.csv
+```
+
+### Balanced search across companies
+
+```bash
+# Get up to 5 prospects per company (searches each company in parallel)
+explorium prospects search -f biz_ids.csv --job-level cxo,vp --max-per-company 5 -o csv --output-file prospects.csv
+```
+
 ## CSV Column Mapping
 
 The CLI auto-maps CSV columns (case-insensitive):
@@ -154,6 +196,8 @@ The CLI auto-maps CSV columns (case-insensitive):
 
 LinkedIn URLs without `https://` are auto-fixed.
 
+**Note:** All `-f`/`--file` options accept CSVs with any number of columns. The CLI reads only the columns it needs and ignores the rest. You can pass the output of one command directly as input to the next without stripping columns.
+
 ## Important Notes
 
 - Match-based enrichment: All enrich commands accept `--name`/`--domain`/`--linkedin` instead of `--id` — the CLI resolves the ID automatically
@@ -161,4 +205,4 @@ LinkedIn URLs without `https://` are auto-fixed.
 - `enrich-file` is the fastest path for CSV workflows — combines match + enrich in one command
 - CSV output flattens nested JSON automatically for spreadsheet use
 - `--summary` shows matched/not-found/error counts on stderr
-- All batch operations retry on transient errors (422, 429, 500-504) with exponential backoff
+- All batch operations retry on transient errors (429, 500-504) with exponential backoff

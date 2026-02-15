@@ -69,7 +69,8 @@ def validate_prospect_match_params(
     first_name: Optional[str],
     last_name: Optional[str],
     linkedin: Optional[str],
-    company_name: Optional[str]
+    company_name: Optional[str],
+    email: Optional[str] = None,
 ) -> None:
     """Validate that either ID or match params are provided.
 
@@ -79,13 +80,14 @@ def validate_prospect_match_params(
         last_name: Last name.
         linkedin: LinkedIn profile URL.
         company_name: Company name.
+        email: Email address.
 
     Raises:
         ValueError: If neither ID nor match parameters are provided.
     """
-    if not prospect_id and not first_name and not last_name and not linkedin:
+    if not prospect_id and not first_name and not last_name and not linkedin and not email:
         raise ValueError(
-            "Provide --id or match parameters (--first-name, --last-name, --linkedin)"
+            "Provide --id or match parameters (--first-name, --last-name, --linkedin, --email)"
         )
 
 
@@ -157,7 +159,8 @@ def resolve_prospect_id(
     last_name: Optional[str] = None,
     linkedin: Optional[str] = None,
     company_name: Optional[str] = None,
-    min_confidence: float = 0.8
+    min_confidence: float = 0.8,
+    email: Optional[str] = None,
 ) -> str:
     """Resolve a prospect ID from match parameters or return direct ID.
 
@@ -172,6 +175,7 @@ def resolve_prospect_id(
         linkedin: LinkedIn profile URL for matching.
         company_name: Company name for matching.
         min_confidence: Minimum confidence threshold (default: 0.8).
+        email: Email address for matching.
 
     Returns:
         The resolved prospect ID.
@@ -186,7 +190,7 @@ def resolve_prospect_id(
 
     # Build match params
     match_params = {}
-    has_strong_id = bool(linkedin)
+    has_strong_id = bool(linkedin or email)
     include_name = company_name or not has_strong_id
 
     if include_name:
@@ -197,6 +201,8 @@ def resolve_prospect_id(
         elif last_name:
             match_params["full_name"] = last_name
 
+    if email:
+        match_params["email"] = email
     if linkedin:
         match_params["linkedin"] = normalize_linkedin_url(linkedin)
     if company_name:
