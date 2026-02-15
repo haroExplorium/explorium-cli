@@ -118,18 +118,198 @@ LinkedIn URLs without `https://` are auto-fixed.
 
 **Note:** All `-f`/`--file` options accept CSVs with any number of columns. The CLI reads only the columns it needs and ignores the rest. You can pass the output of one command directly as input to the next without stripping columns.
 
-## Workflow Execution
+## Workflows
 
-When the user requests a prospecting workflow or complex multi-step pipeline:
+### Event-Driven Marketing Leader Discovery
 
-1. **Read the workflow from the spec** using `read_note_workspace-mcp(noteId="spec")`
-2. **Explain the workflow** to the user step-by-step
-3. **Execute each step** with proper validation and error handling
-4. **Check `--summary` output** after each step to validate success
+**Goal**: Find marketing leadership at companies actively posting about events (conferences, webinars)
 
-The spec contains production-ready workflows including:
-- Event-Driven Marketing Leader Discovery (companies posting about events → find VPs)
-- And other end-to-end prospecting pipelines
+**Input**: CSV file with messy prospect data (varying fields: name, company, email, LinkedIn URL)
+
+**Output**: Marketing VPs+ at event-active companies with contact information
+
+#### Step 1: Read and Validate Input File
+
+```bash
+# Read the input CSV to understand structure
+head -20 /Users/omer.har/Downloads/prospects_enriched_redacted.csv
+
+# Check what columns are available
+head -1 /Users/omer.har/Downloads/prospects_enriched_redacted.csv
+```
+
+**Expected columns** (may vary per row):
+- `first_name`, `last_name`, or `full_name`/`name`
+- `company_name` or `company`
+- `email` (some rows)
+- `linkedin` or `linkedin_url` (some rows)
+
+#### Step 2: Match and Enrich Prospects with Company Data
+
+Use `enrich-file` to match prospects and get their company information in one step.
+
+```bash
+# Match and enrich prospects using the messy CSV
+# Gets prospect_id, business_id, and basic prospect data
+explorium prospects enrich-file \
+  -f /Users/omer.har/Downloads/prospects_enriched_redacted.csv \
+  --types firmographics \
+  --summary \
+  -o csv \
+  --output-file matched_prospects.csv
+```
+
+**What happens**:
+- Rows with email → matched by email (most accurate)
+- Rows with LinkedIn URL → matched by LinkedIn
+- Rows with only name + company → matched by name + company
+- Output includes `prospect_id`, `business_id`, and all matched prospect data
+- The `business_id` column is what we'll use in the next step
+
+#### Step 3: Enrich Companies with Social Posts
+
+```bash
+# Enrich companies directly from matched prospects
+# enrich-file reads the business_id column and ignores other columns
+explorium businesses enrich-file \
+  -f matched_prospects.csv \
+  --types all \
+  --summary \
+  -o json \
+  --output-file companies_with_social.json
+```
+
+**Note**: The CLI automatically uses the `business_id` column from `matched_prospects.csv` and ignores all other columns (like prospect names, emails, etc.). No need to create a separate file with only business IDs.
+
+#### Step 4: Filter Companies with Event-Related Posts
+
+```bash
+# Use jq to filter companies that have social posts mentioning events
+jq -r '
+  select(.social_posts != null) |
+  select(
+    .social_posts | tostring |
+    test("(?i)(conference|webinar|event|summit|meetup|workshop|seminar)"; "i")
+  ) |
+  .business_id
+' companies_with_social.json > event_companies.txt
+
+# Create CSV for next step
+echo "business_id" > event_companies.csv
+cat event_companies.txt >> event_companies.csv
+
+# Count how many companies matched
+echo "Companies with event posts: $(wc -l < event_companies.txt)"
+```
+
+**Event keywords checked**:
+- conference, webinar, event, summit, meetup, workshop, seminar (case-insensitive)
+
+#### Step 5: Find Marketing Leadership at Event-Active Companies
+
+```bash
+# Search for Marketing VPs+ at these companies
+# Use --max-per-company to get balanced results (up to 3 per company)
+explorium prospects search \
+  -f event_companies.csv \
+  --department "Marketing" \
+  --job-level "cxo,vp" \
+  --has-email \
+  --max-per-company 3 \
+  -o csv \
+  --output-file marketing_leaders.csv \
+  --summary
+```
+
+**Filters applied**:
+- Department: Marketing only
+- Seniority: C-level and VP level
+- Must have email address
+- Max 3 per company (balanced across all companies)
+
+#### Step 6: Enrich with Full Contact Information
+
+```bash
+# Enrich marketing leaders with email + phone
+explorium prospects enrich-file \
+  -f marketing_leaders.csv \
+  --types contacts \
+  --summary \
+  -o csv \
+  --output-file final_marketing_leaders.csv
+```
+
+**Final output**: `final_marketing_leaders.csv` contains:
+- Marketing VPs and C-level executives
+- At companies actively posting about events
+- With enriched email and phone numbers
+- Up to 3 prospects per company
+
+#### Complete Pipeline (All Steps)
+
+```bash
+# Full automated pipeline
+# Step 1: Match and enrich prospects (gets business_id)
+explorium prospects enrich-file \
+  -f /Users/omer.har/Downloads/prospects_enriched_redacted.csv \
+  --types firmographics \
+  --summary \
+  -o csv \
+  --output-file matched_prospects.csv
+
+# Step 2: Enrich companies with social posts
+# Uses business_id column from matched_prospects.csv directly
+explorium businesses enrich-file \
+  -f matched_prospects.csv \
+  --types all \
+  --summary \
+  -o json \
+  --output-file companies_with_social.json
+
+# Step 3: Filter for event posts
+jq -r 'select(.social_posts != null) | select(.social_posts | tostring | test("(?i)(conference|webinar|event|summit|meetup|workshop|seminar)"; "i")) | .business_id' companies_with_social.json > event_companies.txt
+echo "business_id" > event_companies.csv
+cat event_companies.txt >> event_companies.csv
+
+# Step 4: Find marketing leaders
+explorium prospects search \
+  -f event_companies.csv \
+  --department "Marketing" \
+  --job-level "cxo,vp" \
+  --has-email \
+  --max-per-company 3 \
+  -o csv \
+  --output-file marketing_leaders.csv \
+  --summary
+
+# Step 5: Enrich with contacts
+explorium prospects enrich-file \
+  -f marketing_leaders.csv \
+  --types contacts \
+  --summary \
+  -o csv \
+  --output-file final_marketing_leaders.csv
+
+echo "✓ Pipeline complete! Results in: final_marketing_leaders.csv"
+```
+
+#### Error Handling and Validation
+
+At each step, check the `--summary` output:
+- **Step 2**: Prospect match rate (target: >70%)
+- **Step 3**: Companies enriched with social data successfully
+- **Step 4**: Number of companies with event posts
+- **Step 5**: Marketing leaders found per company
+- **Step 6**: Contact enrichment rate (emails/phones added)
+
+If match rate is low (<50%), retry with `--min-confidence 0.5` for fuzzier matching.
+
+#### Constraints
+
+- ✅ **Use ONLY Explorium CLI** for all operations
+- ❌ **DO NOT use Vibe Prospecting MCP**
+- ✅ Use `jq` for JSON filtering (system tool, allowed)
+- ✅ Use `cut`, `sort`, `echo` for CSV manipulation (system tools, allowed)
 
 ## Important Notes
 
