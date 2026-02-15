@@ -59,7 +59,6 @@ Enrich a single business with firmographics data.
 -n, --name TEXT            Company name (for matching)
 -d, --domain TEXT          Company domain/website (for matching)
 -l, --linkedin TEXT        LinkedIn company URL (for matching)
---min-confidence FLOAT     Minimum match confidence (0-1, default: 0.8)
 --output-file PATH         Write output to file instead of stdout
 -o, --output [json|table|csv]
 ```
@@ -115,7 +114,6 @@ Search for keywords on a company's website.
 -n, --name TEXT            Company name (for matching)
 -d, --domain TEXT          Company domain/website (for matching)
 -l, --linkedin TEXT        LinkedIn company URL (for matching)
---min-confidence FLOAT     Minimum match confidence (0-1, default: 0.8)
 -k, --keywords TEXT        Keywords to search (comma-separated)  [required]
 --output-file PATH         Write output to file instead of stdout
 -o, --output [json|table|csv]
@@ -171,7 +169,6 @@ Bulk enrich multiple businesses (up to 50).
 --ids TEXT                 Business IDs (comma-separated)
 -f, --file FILENAME        CSV file with 'business_id' column
 --match-file FILENAME      JSON file with match params (name, domain) to resolve IDs
---min-confidence FLOAT     Minimum match confidence (0-1, default: 0.8)
 --summary                  Print match/enrichment statistics to stderr
 --output-file PATH         Write output to file instead of stdout
 -o, --output [json|table|csv]
@@ -184,7 +181,6 @@ Match businesses from a file and enrich in one pass.
 ```
 -f, --file FILENAME        CSV or JSON file with businesses to match and enrich  [required]
 --types TEXT                Enrichment types, comma-separated: firmographics, all
---min-confidence FLOAT     Minimum match confidence (0-1, default: 0.8)
 --summary                  Print match/enrichment statistics to stderr
 --output-file PATH         Write output to file instead of stdout
 -o, --output [json|table|csv]
@@ -294,7 +290,6 @@ Enrich prospect contact information (email, phone).
 --last-name TEXT           Last name (for matching)
 -l, --linkedin TEXT        LinkedIn profile URL (for matching)
 --company-name TEXT        Company name (for matching)
---min-confidence FLOAT     Minimum match confidence (0-1, default: 0.8)
 --output-file PATH         Write output to file instead of stdout
 -o, --output [json|table|csv]
 ```
@@ -322,7 +317,6 @@ Bulk enrich multiple prospects (up to 50).
 -f, --file FILENAME        CSV file with 'prospect_id' column
 --match-file FILENAME      JSON file with match params (full_name, linkedin, company_name) to resolve IDs
 --types TEXT                Enrichment types, comma-separated: contacts, profile, all
---min-confidence FLOAT     Minimum match confidence (0-1, default: 0.8)
 --summary                  Print match/enrichment statistics to stderr
 --output-file PATH         Write output to file instead of stdout
 -o, --output [json|table|csv]
@@ -335,7 +329,6 @@ Match prospects from a file and enrich in one pass.
 ```
 -f, --file FILENAME        CSV or JSON file with prospects to match and enrich  [required]
 --types TEXT                Enrichment types, comma-separated: contacts, profile, all
---min-confidence FLOAT     Minimum match confidence (0-1, default: 0.8)
 --summary                  Print match/enrichment statistics to stderr
 --output-file PATH         Write output to file instead of stdout
 -o, --output [json|table|csv]

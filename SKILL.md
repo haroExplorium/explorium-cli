@@ -55,7 +55,7 @@ See `commands-reference.md` in this skill directory for the full command referen
 |---------|---------|-------------|
 | `businesses match` | Match companies to IDs | `--name`, `--domain`, `--linkedin`, `-f FILE`, `--summary`, `--ids-only` |
 | `businesses search` | Search/filter businesses | `--country`, `--size`, `--revenue`, `--tech`, `--total N` |
-| `businesses enrich` | Firmographics (single) | `--id`, `--name`, `--domain`, `--min-confidence` |
+| `businesses enrich` | Firmographics (single) | `--id`, `--name`, `--domain` |
 | `businesses enrich-tech` | Technology stack | Same ID resolution options |
 | `businesses enrich-financial` | Financial indicators | Same ID resolution options |
 | `businesses enrich-funding` | Funding & acquisitions | Same ID resolution options |
@@ -302,8 +302,6 @@ At each step, check the `--summary` output:
 - **Step 5**: Marketing leaders found per company
 - **Step 6**: Contact enrichment rate (emails/phones added)
 
-If match rate is low (<50%), retry with `--min-confidence 0.5` for fuzzier matching.
-
 #### Constraints
 
 - ✅ **Use ONLY Explorium CLI** for all operations
@@ -314,7 +312,6 @@ If match rate is low (<50%), retry with `--min-confidence 0.5` for fuzzier match
 ## Important Notes
 
 - Match-based enrichment: All enrich commands accept `--name`/`--domain`/`--linkedin` instead of `--id` — the CLI resolves the ID automatically
-- `--min-confidence` (default 0.8): Lower to 0.5-0.7 for fuzzy matches
 - `enrich-file` is the fastest path for CSV workflows — combines match + enrich in one command
 - CSV output flattens nested JSON automatically for spreadsheet use
 - `--summary` shows matched/not-found/error counts on stderr
