@@ -5,13 +5,14 @@ from typing import Optional
 
 import click
 
+from explorium_cli.api.businesses import BusinessesAPI
 from explorium_cli.api.prospects import ProspectsAPI
 from explorium_cli.utils import get_api, handle_api_call, output_options
 from explorium_cli.formatters import output, output_error
 from explorium_cli.api.client import APIError
 from explorium_cli.pagination import paginated_fetch
 from explorium_cli.parallel_search import parallel_prospect_search
-from explorium_cli.batching import parse_csv_ids, parse_csv_prospect_match_params, batched_enrich, batched_match, normalize_linkedin_url
+from explorium_cli.batching import parse_csv_ids, parse_csv_ids_with_rows, parse_csv_prospect_match_params, batched_enrich, batched_match, normalize_linkedin_url, read_input_file, merge_enrichment_results
 from explorium_cli.match_utils import (
     prospect_match_options,
     resolve_prospect_id,
@@ -115,6 +116,52 @@ def _print_match_summary(result: dict, total_input: int) -> None:
         click.echo(msg, err=True)
 
 
+def _print_search_summary(records: list) -> None:
+    """Print aggregate search statistics to stderr."""
+    total_count = len(records)
+    click.echo(f"Summary:", err=True)
+    click.echo(f"  Total prospects found: {total_count}", err=True)
+
+    if not records:
+        return
+
+    # Country breakdown
+    countries: dict = {}
+    for r in records:
+        c = r.get("country_name") or r.get("country_code") or r.get("country") or "Unknown"
+        countries[c] = countries.get(c, 0) + 1
+    if countries:
+        sorted_countries = sorted(countries.items(), key=lambda x: x[1], reverse=True)
+        parts = [f"{c} ({n})" for c, n in sorted_countries[:10]]
+        if len(sorted_countries) > 10:
+            parts.append(f"...+{len(sorted_countries) - 10} more")
+        click.echo(f"  Countries: {', '.join(parts)}", err=True)
+
+    # Job level breakdown
+    levels: dict = {}
+    for r in records:
+        lv = r.get("job_level_main") or r.get("job_level") or "Unknown"
+        levels[lv] = levels.get(lv, 0) + 1
+    if levels:
+        sorted_levels = sorted(levels.items(), key=lambda x: x[1], reverse=True)
+        parts = [f"{lv} ({n})" for lv, n in sorted_levels]
+        click.echo(f"  Job levels: {', '.join(parts)}", err=True)
+
+    # Companies represented
+    bids = {r.get("business_id") for r in records if r.get("business_id")}
+    if bids:
+        click.echo(f"  Companies represented: {len(bids)}", err=True)
+
+    # Email/phone availability
+    with_email = sum(1 for r in records if r.get("has_email") or r.get("email"))
+    with_phone = sum(1 for r in records if r.get("has_phone_number") or r.get("phone"))
+    if total_count > 0:
+        email_pct = round(with_email / total_count * 100)
+        phone_pct = round(with_phone / total_count * 100)
+        click.echo(f"  With email: {with_email} ({email_pct}%)", err=True)
+        click.echo(f"  With phone: {with_phone} ({phone_pct}%)", err=True)
+
+
 class _OrderedGroup(click.Group):
     """A Click group that lists commands in definition order."""
 
@@ -164,10 +211,11 @@ def match(
     prospects_api = ProspectsAPI(api)
 
     if file:
-        if hasattr(file, 'name') and file.name.endswith('.csv'):
-            prospects_to_match = parse_csv_prospect_match_params(file)
+        content, csv_mode = read_input_file(file)
+        if csv_mode:
+            prospects_to_match = parse_csv_prospect_match_params(content)
         else:
-            prospects_to_match = json.load(file)
+            prospects_to_match = json.load(content)
     elif first_name or last_name or email or linkedin:
         prospect = {}
         # Strip full_name when a strong identifier (linkedin/email) is present
@@ -234,6 +282,7 @@ def match(
 
 @prospects.command()
 @click.option("--business-id", "-b", help="Business IDs (comma-separated)")
+@click.option("--company-name", help="Company names to search (comma-separated, auto-resolves to business IDs)")
 @click.option(
     "--file", "-f",
     type=click.File("r"),
@@ -253,11 +302,13 @@ def match(
 @click.option("--total", type=int, help="Total records to collect (auto-paginate)")
 @click.option("--page", type=int, default=1, help="Page number (ignored if --total)")
 @click.option("--page-size", type=int, default=100, help="Results per page")
+@click.option("--summary", is_flag=True, help="Print aggregate statistics to stderr")
 @output_options
 @click.pass_context
 def search(
     ctx: click.Context,
     business_id: Optional[str],
+    company_name: Optional[str],
     file,
     job_level: Optional[str],
     department: Optional[str],
@@ -272,18 +323,46 @@ def search(
     max_per_company: Optional[int],
     total: Optional[int],
     page: int,
-    page_size: int
+    page_size: int,
+    summary: bool,
 ) -> None:
     """Search and filter prospects."""
     api = get_api(ctx)
     prospects_api = ProspectsAPI(api)
 
-    # Get business IDs from file or command line
+    # Get business IDs from file, --business-id, or --company-name
     business_ids = []
     if file:
         business_ids = parse_csv_ids(file, column_name="business_id")
     elif business_id:
         business_ids = business_id.split(",")
+    elif company_name:
+        # Resolve company names to business IDs via match
+        businesses_api = BusinessesAPI(api)
+        names = [n.strip() for n in company_name.split(",")]
+        click.echo(f"Resolving {len(names)} company name(s) to business IDs...", err=True)
+        for i, name in enumerate(names):
+            try:
+                result = businesses_api.match([{"name": name}])
+                matched = result.get("matched_businesses") or result.get("data", [])
+                if isinstance(matched, list):
+                    for m in matched:
+                        bid = m.get("business_id")
+                        if bid:
+                            business_ids.append(bid)
+                            click.echo(f"  ✓ '{name}' → {bid}", err=True)
+                if not any(m.get("business_id") for m in (matched if isinstance(matched, list) else [])):
+                    click.echo(
+                        f"  ✗ No match for '{name}'. Try: explorium businesses autocomplete --query \"{name}\"",
+                        err=True,
+                    )
+            except Exception as e:
+                click.echo(f"  ✗ Error matching '{name}': {e}", err=True)
+        if not business_ids:
+            raise click.UsageError(
+                f"No businesses found matching the given name(s). "
+                f"Try 'explorium businesses autocomplete --query \"...\"' to find similar names."
+            )
 
     filters = {}
     if business_ids:
@@ -293,7 +372,7 @@ def search(
     if department:
         filters["job_department"] = {"type": "includes", "values": department.split(",")}
     if job_title:
-        filters["job_title"] = {"type": "includes", "values": [job_title], "include_related_job_titles": True}
+        filters["job_title"] = {"type": "any_match_phrase", "values": [job_title], "include_related_job_titles": True}
     if country:
         filters["country_code"] = {"type": "includes", "values": country.split(",")}
     if has_email:
@@ -330,6 +409,8 @@ def search(
                 page_size=page_size,
             )
             output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
+            if summary:
+                _print_search_summary(result.get("data", []))
         except APIError as e:
             output_error(e.message, e.response)
             raise click.Abort()
@@ -348,6 +429,8 @@ def search(
                 filters=filters
             )
             output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
+            if summary:
+                _print_search_summary(result.get("data", []))
         except APIError as e:
             output_error(e.message, e.response)
             raise click.Abort()
@@ -356,7 +439,7 @@ def search(
             raise click.Abort()
     else:
         # Single page mode (existing behavior)
-        handle_api_call(
+        result = handle_api_call(
             ctx,
             prospects_api.search,
             filters,
@@ -364,6 +447,10 @@ def search(
             page_size=page_size,
             page=page
         )
+        if summary and result:
+            records = result.get("data", [])
+            if isinstance(records, list):
+                _print_search_summary(records)
 
 
 # Enrich subgroup
@@ -487,9 +574,10 @@ def bulk_enrich(
     prospects_api = ProspectsAPI(api)
 
     prospect_ids = []
+    file_id_to_input: dict = {}
 
     if file:
-        prospect_ids = parse_csv_ids(file, column_name="prospect_id")
+        prospect_ids, file_id_to_input = parse_csv_ids_with_rows(file, column_name="prospect_id")
     elif ids:
         prospect_ids = [id.strip() for id in ids.split(",")]
     elif match_file:
@@ -523,6 +611,8 @@ def bulk_enrich(
                 prospect_ids.append(resolved_id)
             except (MatchError, LowConfidenceError) as e:
                 match_failures.append((i, params, str(e)))
+            except Exception as e:
+                match_failures.append((i, params, f"Error: {e}"))
 
             if (i + 1) % 10 == 0 or (i + 1) == total_to_match:
                 click.echo(f"  {i + 1}/{total_to_match} processed", err=True)
@@ -547,12 +637,22 @@ def bulk_enrich(
     if len(methods) == 1:
         result = batched_enrich(methods[0][1], prospect_ids, entity_name="prospects", id_key="prospect_id")
     else:
-        all_data = []
+        all_partials = []
         for label, api_method in methods:
             click.echo(f"Enriching {label}...", err=True)
             partial = batched_enrich(api_method, prospect_ids, entity_name="prospects", id_key="prospect_id")
-            all_data.extend(partial.get("data", []))
-        result = {"status": "success", "data": all_data}
+            all_partials.append(partial.get("data", []))
+        result = {"status": "success", "data": merge_enrichment_results(all_partials, "prospect_id")}
+
+    # Merge input columns from file if available
+    if file_id_to_input:
+        enriched_data = result.get("data", [])
+        if isinstance(enriched_data, list):
+            for row in enriched_data:
+                pid = row.get("prospect_id", "")
+                if pid in file_id_to_input:
+                    for k, v in file_id_to_input[pid].items():
+                        row[f"input_{k}"] = v
 
     output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
 
@@ -604,54 +704,74 @@ def enrich_file(
     prospects_api = ProspectsAPI(api)
 
     # Parse file (auto-detect CSV vs JSON)
-    if hasattr(file, 'name') and file.name.endswith('.csv'):
-        match_params_list = parse_csv_prospect_match_params(file)
+    content, csv_mode = read_input_file(file)
+    if csv_mode:
+        match_params_list = parse_csv_prospect_match_params(content)
     else:
-        match_params_list = json.load(file)
+        match_params_list = json.load(content)
 
-    # Resolve each to a prospect ID, tracking input params for later merge
+    # Resolve each to a prospect ID, tracking input params for later merge.
+    # If the parsed row already contains a prospect_id, use it directly.
     prospect_ids = []
     id_to_input: dict = {}
     match_failures = []
-    total_to_match = len(match_params_list)
-
-    click.echo(f"Matching {total_to_match} prospects...", err=True)
+    rows_to_match = []
+    rows_with_id = []
 
     for i, params in enumerate(match_params_list):
-        try:
-            full_name = params.get("full_name", "")
-            first_name = None
-            last_name = None
-            if full_name:
-                parts = full_name.split(" ", 1)
-                first_name = parts[0]
-                last_name = parts[1] if len(parts) > 1 else None
+        existing_id = params.get("prospect_id", "").strip() if isinstance(params.get("prospect_id"), str) else ""
+        if existing_id:
+            prospect_ids.append(existing_id)
+            id_to_input[existing_id] = params
+            rows_with_id.append(i)
+        else:
+            rows_to_match.append((i, params))
 
-            resolved_id = resolve_prospect_id(
-                prospects_api,
-                first_name=first_name or params.get("first_name"),
-                last_name=last_name or params.get("last_name"),
-                linkedin=params.get("linkedin"),
-                company_name=params.get("company_name"),
-                email=params.get("email"),
-                min_confidence=min_confidence,
-            )
-            prospect_ids.append(resolved_id)
-            id_to_input[resolved_id] = params
-        except (MatchError, LowConfidenceError) as e:
-            match_failures.append((i, params, str(e)))
+    if rows_with_id:
+        click.echo(f"Using existing prospect_id for {len(rows_with_id)} rows", err=True)
 
-        if (i + 1) % 10 == 0 or (i + 1) == total_to_match:
-            click.echo(f"  {i + 1}/{total_to_match} processed", err=True)
+    total_to_match = len(rows_to_match)
+    if total_to_match > 0:
+        click.echo(f"Matching {total_to_match} prospects...", err=True)
 
-    if match_failures:
-        click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
-        for idx, params, error in match_failures[:5]:
-            click.echo(f"  {idx}: {params} - {error}", err=True)
-        if len(match_failures) > 5:
-            click.echo(f"  ... and {len(match_failures) - 5} more", err=True)
+        for seq, (i, params) in enumerate(rows_to_match):
+            try:
+                full_name = params.get("full_name", "")
+                first_name = None
+                last_name = None
+                if full_name:
+                    parts = full_name.split(" ", 1)
+                    first_name = parts[0]
+                    last_name = parts[1] if len(parts) > 1 else None
 
-    click.echo(f"Matched: {len(prospect_ids)}/{total_to_match}, Failed: {len(match_failures)}", err=True)
+                resolved_id = resolve_prospect_id(
+                    prospects_api,
+                    first_name=first_name or params.get("first_name"),
+                    last_name=last_name or params.get("last_name"),
+                    linkedin=params.get("linkedin"),
+                    company_name=params.get("company_name"),
+                    email=params.get("email"),
+                    min_confidence=min_confidence,
+                )
+                prospect_ids.append(resolved_id)
+                id_to_input[resolved_id] = params
+            except (MatchError, LowConfidenceError) as e:
+                match_failures.append((i, params, str(e)))
+            except Exception as e:
+                match_failures.append((i, params, f"Error: {e}"))
+
+            if (seq + 1) % 10 == 0 or (seq + 1) == total_to_match:
+                click.echo(f"  {seq + 1}/{total_to_match} processed", err=True)
+
+        if match_failures:
+            click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
+            for idx, params, error in match_failures[:5]:
+                click.echo(f"  {idx}: {params} - {error}", err=True)
+            if len(match_failures) > 5:
+                click.echo(f"  ... and {len(match_failures) - 5} more", err=True)
+
+    total_input = len(match_params_list)
+    click.echo(f"Matched: {len(prospect_ids)}/{total_input}, Failed: {len(match_failures)}", err=True)
 
     if not prospect_ids:
         raise click.UsageError("No prospects could be matched from file")
@@ -662,12 +782,12 @@ def enrich_file(
     if len(methods) == 1:
         result = batched_enrich(methods[0][1], prospect_ids, entity_name="prospects", id_key="prospect_id")
     else:
-        all_data = []
+        all_partials = []
         for label, api_method in methods:
             click.echo(f"Enriching {label}...", err=True)
             partial = batched_enrich(api_method, prospect_ids, entity_name="prospects", id_key="prospect_id")
-            all_data.extend(partial.get("data", []))
-        result = {"status": "success", "data": all_data}
+            all_partials.append(partial.get("data", []))
+        result = {"status": "success", "data": merge_enrichment_results(all_partials, "prospect_id")}
 
     # Merge original input columns into enrichment results
     enriched_data = result.get("data", [])
@@ -683,13 +803,22 @@ def enrich_file(
 
 @prospects.command()
 @click.option("--query", "-q", required=True, help="Search query")
+@click.option(
+    "--field",
+    type=click.Choice(["name", "job-title", "department"], case_sensitive=False),
+    default="name",
+    help="Field to autocomplete (default: name)"
+)
 @output_options
 @click.pass_context
-def autocomplete(ctx: click.Context, query: str) -> None:
-    """Get autocomplete suggestions for prospect names."""
+def autocomplete(ctx: click.Context, query: str, field: str) -> None:
+    """Get autocomplete suggestions for prospect names, job titles, or departments."""
     api = get_api(ctx)
     prospects_api = ProspectsAPI(api)
-    handle_api_call(ctx, prospects_api.autocomplete, query)
+    # Map friendly field names to API field names
+    field_map = {"name": "prospect_name", "job-title": "job_title", "department": "job_department"}
+    api_field = field_map.get(field, "prospect_name")
+    handle_api_call(ctx, prospects_api.autocomplete, query, api_field)
 
 
 @prospects.command()

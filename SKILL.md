@@ -54,7 +54,7 @@ See `commands-reference.md` in this skill directory for the full command referen
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
 | `businesses match` | Match companies to IDs | `--name`, `--domain`, `--linkedin`, `-f FILE`, `--summary`, `--ids-only` |
-| `businesses search` | Search/filter businesses | `--country`, `--size`, `--revenue`, `--tech`, `--total N` |
+| `businesses search` | Search/filter businesses | `--country`, `--size`, `--revenue`, `--industry`, `--tech`, `--total N` |
 | `businesses enrich` | Firmographics (single) | `--id`, `--name`, `--domain` |
 | `businesses enrich-tech` | Technology stack | Same ID resolution options |
 | `businesses enrich-financial` | Financial indicators | Same ID resolution options |
@@ -74,7 +74,7 @@ See `commands-reference.md` in this skill directory for the full command referen
 | `businesses bulk-enrich` | Bulk firmographics | `--ids`, `-f FILE`, `--match-file`, `--summary` |
 | `businesses enrich-file` | Match + enrich in one | `-f FILE`, `--types`, `--summary` |
 | `businesses lookalike` | Similar companies | `--id`, `--name`, `--domain` |
-| `businesses autocomplete` | Name suggestions | `--query` |
+| `businesses autocomplete` | Name/industry/tech suggestions | `--query`, `--field {name,industry,tech}` |
 | `businesses events list` | List event types | `--ids` |
 | `businesses events enroll` | Subscribe to events | `--ids`, `--events`, `--key` |
 | `businesses events enrollments` | List subscriptions | |
@@ -84,13 +84,13 @@ See `commands-reference.md` in this skill directory for the full command referen
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
 | `prospects match` | Match people to IDs | `--first-name`, `--last-name`, `--company-name`, `--email`, `--linkedin`, `-f FILE`, `--summary` |
-| `prospects search` | Search prospects | `--business-id`, `-f FILE`, `--job-level`, `--department`, `--has-email`, `--total N`, `--max-per-company N` |
+| `prospects search` | Search prospects | `--business-id`, `--company-name`, `-f FILE`, `--job-level`, `--department`, `--has-email`, `--total N`, `--max-per-company N`, `--summary` |
 | `prospects enrich contacts` | Emails & phones (single) | `--id`, `--first-name`, `--last-name`, `--company-name`, `--email`, `--linkedin` |
 | `prospects enrich social` | LinkedIn posts | Same ID resolution options |
 | `prospects enrich profile` | Professional profile | Same ID resolution options |
-| `prospects bulk-enrich` | Bulk enrich (output has only prospect_id + enrichment fields; use `enrich-file` to preserve input columns) | `--ids`, `-f FILE`, `--match-file`, `--types {contacts,profile,all}`, `--summary` |
+| `prospects bulk-enrich` | Bulk enrich (with `-f FILE`: preserves input columns with `input_` prefix; with `--ids`: enrichment fields only) | `--ids`, `-f FILE`, `--match-file`, `--types {contacts,profile,all}`, `--summary` |
 | `prospects enrich-file` | Match + enrich in one | `-f FILE`, `--types {contacts,profile,all}`, `--summary` |
-| `prospects autocomplete` | Name suggestions | `--query` |
+| `prospects autocomplete` | Name/title/dept suggestions | `--query`, `--field {name,job-title,department}` |
 | `prospects statistics` | Aggregated insights | `--business-id`, `--group-by` |
 | `prospects events list` | List event types | `--ids` |
 | `prospects events enroll` | Subscribe to events | `--ids`, `--events`, `--key` |
@@ -118,7 +118,42 @@ LinkedIn URLs without `https://` are auto-fixed.
 
 **Note:** All `-f`/`--file` options accept CSVs with any number of columns. The CLI reads only the columns it needs and ignores the rest. You can pass the output of one command directly as input to the next without stripping columns.
 
+## Stdin Piping
+
+All `-f`/`--file` options accept `-` to read from stdin, enabling command pipelines:
+
+```bash
+# Pipe match output into search, then into enrich
+# bulk-enrich -f preserves input columns with input_ prefix
+explorium businesses match -f companies.csv -o csv 2>/dev/null \
+  | explorium prospects search -f - --job-level cxo --total 10 -o csv 2>/dev/null \
+  | explorium prospects bulk-enrich -f - --types contacts -o csv \
+  > final_results.csv
+```
+
+Format (CSV vs JSON) is auto-detected from content. `--summary` output goes to stderr and won't corrupt piped data.
+
 ## Workflows
+
+### Search prospects by company name
+
+```bash
+# No need to resolve business_id manually — --company-name does it internally
+explorium prospects search --company-name "Salesforce" --job-level cxo --country US --total 50 --summary -o csv --output-file results.csv
+```
+
+### Discover valid filter values
+
+```bash
+# Find valid industry categories for --industry
+explorium businesses autocomplete --query "software" --field industry
+
+# Find valid technologies for --tech
+explorium businesses autocomplete --query "React" --field tech
+
+# Find valid job titles
+explorium prospects autocomplete --query "founder" --field job-title
+```
 
 ### Event-Driven Marketing Leader Discovery
 
@@ -315,4 +350,8 @@ At each step, check the `--summary` output:
 - `enrich-file` is the fastest path for CSV workflows — combines match + enrich in one command
 - CSV output flattens nested JSON automatically for spreadsheet use
 - `--summary` shows matched/not-found/error counts on stderr
-- All batch operations retry on transient errors (429, 500-504) with exponential backoff
+- `--company-name` on `prospects search`: resolves company names to business IDs automatically (accepts comma-separated names)
+- `prospects search --summary`: prints aggregate stats (countries, job levels, companies, email/phone counts) to stderr
+- `--field` on autocomplete: discover valid values for `--industry`, `--tech`, `--job-title`, `--department`
+- `-f -` reads from stdin on all file-accepting commands (auto-detects CSV vs JSON)
+- All batch operations retry on transient errors (422, 429, 500-504, ConnectionError, Timeout) with exponential backoff. Failed batches are skipped and partial results are returned.
