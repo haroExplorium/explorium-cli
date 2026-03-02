@@ -12,6 +12,8 @@ All commands accept these options (place BEFORE the subcommand):
 --output-file PATH             Write output to file (clean JSON/CSV, no formatting)
 ```
 
+**Stdin piping:** All `-f`/`--file` options accept `-` to read from stdin. Format (CSV/JSON) is auto-detected.
+
 ---
 
 ## Businesses
@@ -194,10 +196,11 @@ Same options as `businesses enrich`.
 
 ### `businesses autocomplete`
 
-Get autocomplete suggestions for company names.
+Get autocomplete suggestions for company names, industries, or technologies.
 
 ```
 -q, --query TEXT           Search query  [required]
+--field [name|industry|tech]  Field to autocomplete (default: name)
 --output-file PATH         Write output to file instead of stdout
 -o, --output [json|table|csv]
 ```
@@ -261,6 +264,7 @@ Search and filter prospects.
 
 ```
 -b, --business-id TEXT     Business IDs (comma-separated)
+--company-name TEXT        Company names (comma-separated, auto-resolves to business IDs)
 -f, --file FILENAME        CSV file with 'business_id' column
 --job-level TEXT           Job levels (comma-separated: cxo,vp,director,manager,senior,entry)
 --department TEXT          Departments (comma-separated)
@@ -276,6 +280,7 @@ Search and filter prospects.
 --total INTEGER            Total records to collect (auto-paginate)
 --page INTEGER             Page number (ignored if --total)
 --page-size INTEGER        Results per page
+--summary                  Print aggregate statistics to stderr
 --output-file PATH         Write output to file instead of stdout
 -o, --output [json|table|csv]
 ```
@@ -336,10 +341,11 @@ Match prospects from a file and enrich in one pass.
 
 ### `prospects autocomplete`
 
-Get autocomplete suggestions for prospect names.
+Get autocomplete suggestions for prospect names, job titles, or departments.
 
 ```
 -q, --query TEXT           Search query  [required]
+--field [name|job-title|department]  Field to autocomplete (default: name)
 --output-file PATH         Write output to file instead of stdout
 -o, --output [json|table|csv]
 ```

@@ -161,19 +161,20 @@ class ProspectsAPI:
             json={"prospect_ids": prospect_ids}
         )
 
-    def autocomplete(self, query: str) -> dict:
+    def autocomplete(self, query: str, field: str = "prospect_name") -> dict:
         """
         Get autocomplete suggestions for prospect names.
 
         Args:
             query: Search query string.
+            field: Field to autocomplete (default: prospect_name).
 
         Returns:
             API response with autocomplete suggestions.
         """
         return self.client.get(
             "/prospects/autocomplete",
-            params={"query": query}
+            params={"query": query, "field": field}
         )
 
     def statistics(

@@ -1,5 +1,5 @@
 ---
-name: explorium-cli
+name: vibe-prospecting-multistep-workflow
 description: Use when needing to look up companies, find prospects, enrich contacts with emails and phone numbers, match businesses or people to Explorium IDs, get firmographics, technographics, funding data, or any B2B sales intelligence. Use when user mentions Explorium, prospect enrichment, company data, or lead research via CLI.
 ---
 
