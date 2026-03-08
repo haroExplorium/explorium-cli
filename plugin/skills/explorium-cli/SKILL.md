@@ -9,7 +9,22 @@ B2B data enrichment CLI. Match companies/prospects to IDs, enrich with firmograp
 
 ## Setup (run once per session if needed)
 
-**Step 1: Check if binary is installed**
+### Cowork VM (recommended)
+
+If the repo is already cloned, run the setup script. It pulls latest code, installs the CLI, syncs this skill, and configures the API key:
+
+```bash
+cd /path/to/explorium-cli && ./setup-cowork.sh
+```
+
+If the repo is not yet cloned:
+
+```bash
+git clone https://github.com/haroExplorium/explorium-cli.git
+cd explorium-cli && ./setup-cowork.sh
+```
+
+### Standalone binary install
 
 ```bash
 which explorium 2>/dev/null || ls ~/.local/bin/explorium 2>/dev/null
@@ -22,13 +37,13 @@ curl -fsSL https://raw.githubusercontent.com/haroExplorium/explorium-cli/main/in
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-**Step 2: Check if API key is configured**
+### Configure API key
 
 ```bash
 explorium config show
 ```
 
-If output shows `api_key: Not set`, ask the user for their Explorium API key using AskUserQuestion, then:
+If output shows `api_key: NOT SET` (exit code 1), ask the user for their Explorium API key using AskUserQuestion, then:
 
 ```bash
 explorium config init -k <API_KEY>
