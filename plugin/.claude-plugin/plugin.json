@@ -1,0 +1,8 @@
+{
+  "name": "explorium-cli",
+  "description": "Explorium CLI skill for B2B data enrichment - match companies/prospects, enrich with firmographics, contacts, tech stack, funding, and AI-powered company research.",
+  "version": "1.2.0",
+  "author": {
+    "name": "Explorium"
+  }
+}

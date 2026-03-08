@@ -8,7 +8,6 @@ REPO="haroExplorium/explorium-cli"
 BIN_DIR="$HOME/.local/bin"
 SKILL_DIR="$HOME/.claude/skills/explorium-cli"
 BINARY_NAME="explorium"
-ASSET_NAME="explorium-darwin-arm64"
 
 # Colors
 RED='\033[0;31m'
@@ -23,20 +22,32 @@ warn()  { printf "${YELLOW}==>${NC} %s\n" "$1"; }
 error() { printf "${RED}Error:${NC} %s\n" "$1" >&2; exit 1; }
 
 # -------------------------------------------------------------------
-# 1. Check platform (macOS ARM only)
+# 1. Detect platform and architecture
 # -------------------------------------------------------------------
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 
-if [[ "$OS" != "Darwin" ]]; then
-    error "This installer only supports macOS. Detected: $OS"
-fi
+case "$OS" in
+    Darwin)
+        case "$ARCH" in
+            arm64)  ASSET_NAME="explorium-darwin-arm64" ;;
+            x86_64) error "macOS x86_64 is not supported. Apple Silicon (arm64) required." ;;
+            *)      error "Unsupported macOS architecture: $ARCH" ;;
+        esac
+        ;;
+    Linux)
+        case "$ARCH" in
+            x86_64|amd64)   ASSET_NAME="explorium-linux-amd64" ;;
+            aarch64|arm64)  ASSET_NAME="explorium-linux-arm64" ;;
+            *)              error "Unsupported Linux architecture: $ARCH" ;;
+        esac
+        ;;
+    *)
+        error "Unsupported OS: $OS. Only macOS and Linux are supported."
+        ;;
+esac
 
-if [[ "$ARCH" != "arm64" ]]; then
-    error "This installer only supports Apple Silicon (arm64). Detected: $ARCH"
-fi
-
-info "Detected macOS ARM64 — proceeding with installation"
+info "Detected ${OS} ${ARCH} — downloading ${ASSET_NAME}"
 
 # -------------------------------------------------------------------
 # 2. Check dependencies
@@ -84,7 +95,7 @@ fi
 # -------------------------------------------------------------------
 # 6. Add ~/.local/bin to PATH if needed
 # -------------------------------------------------------------------
-SHELL_NAME="$(basename "$SHELL")"
+SHELL_NAME="$(basename "${SHELL:-/bin/bash}")"
 PROFILE=""
 
 case "$SHELL_NAME" in

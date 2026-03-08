@@ -43,20 +43,28 @@ def init(api_key: str, config_path: str) -> None:
 )
 @click.pass_context
 def show(ctx: click.Context, config_path: str) -> None:
-    """Show current configuration."""
+    """Show current configuration.
+
+    Exits with code 0 if an API key is configured, code 1 if not.
+    """
     config = ctx.obj.get("config") or load_config(config_path)
 
     # Mask API key for display
     display_config = config.copy()
-    if display_config.get("api_key"):
-        key = display_config["api_key"]
-        if len(key) > 8:
-            display_config["api_key"] = f"{key[:4]}...{key[-4:]}"
+    api_key = display_config.get("api_key", "")
+    if api_key:
+        if len(api_key) > 8:
+            display_config["api_key"] = f"{api_key[:4]}...{api_key[-4:]}"
         else:
             display_config["api_key"] = "***"
+    else:
+        display_config["api_key"] = "NOT SET"
 
     output_info(f"Config file: {config_path or CONFIG_FILE}")
     click.echo(yaml.dump(display_config, default_flow_style=False))
+
+    if not api_key:
+        raise SystemExit(1)
 
 
 @config_group.command()

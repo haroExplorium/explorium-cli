@@ -1,11 +1,11 @@
 ---
-name: vibe-prospecting-multistep-workflow
+name: explorium-cli
 description: Use when needing to look up companies, find prospects, enrich contacts with emails and phone numbers, match businesses or people to Explorium IDs, get firmographics, technographics, funding data, or any B2B sales intelligence. Use when user mentions Explorium, prospect enrichment, company data, or lead research via CLI.
 ---
 
 # Explorium CLI
 
-B2B data enrichment CLI. Match companies/prospects to IDs, enrich with firmographics, contacts, profiles, tech stack, funding, and more.
+B2B data enrichment CLI. Match companies/prospects to IDs, enrich with firmographics, contacts, profiles, tech stack, funding, and more. Includes AI-powered company research with web search.
 
 ## Setup (run once per session if needed)
 
@@ -21,8 +21,6 @@ If not found, install with the one-liner:
 curl -fsSL https://raw.githubusercontent.com/haroExplorium/explorium-cli/main/install.sh | bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
-
-This downloads the CLI binary to `~/.local/bin/explorium`, makes it executable, and adds it to PATH.
 
 **Step 2: Check if API key is configured**
 
@@ -47,7 +45,7 @@ Place BEFORE the subcommand:
 
 ## Commands Reference
 
-See `commands-reference.md` in this skill directory for the full command reference with all options.
+See `commands-reference.md` in this directory for the full command reference with all options.
 
 ### Businesses
 
@@ -55,7 +53,7 @@ See `commands-reference.md` in this skill directory for the full command referen
 |---------|---------|-------------|
 | `businesses match` | Match companies to IDs | `--name`, `--domain`, `--linkedin`, `-f FILE`, `--summary`, `--ids-only` |
 | `businesses search` | Search/filter businesses | `--country`, `--size`, `--revenue`, `--industry`, `--tech`, `--total N` |
-| `businesses enrich` | Firmographics (single) | `--id`, `--name`, `--domain` |
+| `businesses enrich` | Firmographics (single) | `--id`, `--name`, `--domain`, `--min-confidence` |
 | `businesses enrich-tech` | Technology stack | Same ID resolution options |
 | `businesses enrich-financial` | Financial indicators | Same ID resolution options |
 | `businesses enrich-funding` | Funding & acquisitions | Same ID resolution options |
@@ -63,7 +61,7 @@ See `commands-reference.md` in this skill directory for the full command referen
 | `businesses enrich-traffic` | Website traffic | Same ID resolution options |
 | `businesses enrich-social` | LinkedIn posts | Same ID resolution options |
 | `businesses enrich-ratings` | Employee ratings | Same ID resolution options |
-| `businesses enrich-keywords` | Website keywords | Same ID resolution options + `--keyword` |
+| `businesses enrich-keywords` | Website keywords | Same ID resolution options + `--keywords` |
 | `businesses enrich-challenges` | 10-K challenges | Same ID resolution options |
 | `businesses enrich-competitive` | Competitive landscape | Same ID resolution options |
 | `businesses enrich-strategic` | Strategic insights | Same ID resolution options |
@@ -75,7 +73,7 @@ See `commands-reference.md` in this skill directory for the full command referen
 | `businesses enrich-file` | Match + enrich in one | `-f FILE`, `--types`, `--summary` |
 | `businesses lookalike` | Similar companies | `--id`, `--name`, `--domain` |
 | `businesses autocomplete` | Name/industry/tech suggestions | `--query`, `--field {name,industry,tech}` |
-| `businesses events list` | List event types | `--ids` |
+| `businesses events list` | List event types | `--ids`, `--events` |
 | `businesses events enroll` | Subscribe to events | `--ids`, `--events`, `--key` |
 | `businesses events enrollments` | List subscriptions | |
 
@@ -83,8 +81,8 @@ See `commands-reference.md` in this skill directory for the full command referen
 
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
-| `prospects match` | Match people to IDs | `--first-name`, `--last-name`, `--company-name`, `--email`, `--linkedin`, `-f FILE`, `--summary` |
-| `prospects search` | Search prospects | `--business-id`, `--company-name`, `-f FILE`, `--job-level`, `--department`, `--has-email`, `--total N`, `--max-per-company N`, `--summary` |
+| `prospects match` | Match people to IDs | `--first-name`, `--last-name`, `--company-name`, `--email`, `--linkedin`, `-f FILE`, `--summary`, `--ids-only` |
+| `prospects search` | Search prospects | `--business-id`, `--company-name`, `-f FILE`, `--job-level`, `--department`, `--job-title`, `--country`, `--has-email`, `--has-phone`, `--total N`, `--max-per-company N`, `--summary` |
 | `prospects enrich contacts` | Emails & phones (single) | `--id`, `--first-name`, `--last-name`, `--company-name`, `--email`, `--linkedin` |
 | `prospects enrich social` | LinkedIn posts | Same ID resolution options |
 | `prospects enrich profile` | Professional profile | Same ID resolution options |
@@ -92,8 +90,42 @@ See `commands-reference.md` in this skill directory for the full command referen
 | `prospects enrich-file` | Match + enrich in one | `-f FILE`, `--types {contacts,profile,all}`, `--summary` |
 | `prospects autocomplete` | Name/title/dept suggestions | `--query`, `--field {name,job-title,department}` |
 | `prospects statistics` | Aggregated insights | `--business-id`, `--group-by` |
-| `prospects events list` | List event types | `--ids` |
+| `prospects events list` | List event types | `--ids`, `--events` |
 | `prospects events enroll` | Subscribe to events | `--ids`, `--events`, `--key` |
+| `prospects events enrollments` | List subscriptions | |
+
+### Research
+
+AI-powered company research using Claude + web search. Requires `ANTHROPIC_API_KEY` environment variable.
+
+| Command | Purpose | Key Options |
+|---------|---------|-------------|
+| `research run` | Research companies with AI + web search | `-f FILE`, `--prompt`, `--threads`, `--max-searches`, `--no-polish`, `--verbose` |
+
+#### `research run`
+
+Reads a CSV/JSON file, asks a question about each company using AI with web search, and outputs the original data with 3 new columns: `research_answer`, `research_reasoning`, `research_confidence`.
+
+```
+-f, --file FILENAME        Input CSV or JSON file with company records  [required]
+-p, --prompt TEXT          Research question to answer for each company  [required]
+-t, --threads INTEGER      Max concurrent research tasks (default: 10)
+--max-searches INTEGER     Max web searches per company (default: 5)
+--no-polish                Skip prompt polishing with Sonnet
+-v, --verbose              Show detailed progress and polished prompt
+```
+
+**How it works:**
+1. Reads input file and auto-detects company name and domain columns
+2. Polishes the raw question into a precise research prompt using Claude Sonnet (skip with `--no-polish`)
+3. Fans out research across all companies concurrently (controlled by `--threads`)
+4. Each company is researched using Claude Haiku with web search tool
+5. Results are merged back into the original records
+
+**Example:**
+```bash
+explorium research run -f companies.csv --prompt "Is this a B2B company?" -o csv --output-file researched.csv
+```
 
 ### Config & Webhooks
 
@@ -113,6 +145,7 @@ The CLI auto-maps CSV columns (case-insensitive):
 
 **Businesses:** `name`/`company_name`/`company`, `domain`/`website`/`url`, `linkedin_url`/`linkedin`
 **Prospects:** `full_name`/`name`, `first_name`, `last_name`, `email`/`email_address`, `linkedin`/`linkedin_url`, `company_name`/`company`
+**Research:** `company_name`/`company`/`name`/`business_name` (for company), `domain`/`website`/`url` (for domain)
 
 LinkedIn URLs without `https://` are auto-fixed.
 
@@ -135,11 +168,16 @@ Format (CSV vs JSON) is auto-detected from content. `--summary` output goes to s
 
 ## Workflows
 
-### Search prospects by company name
+### Single company lookup
 
 ```bash
-# No need to resolve business_id manually — --company-name does it internally
-explorium prospects search --company-name "Salesforce" --job-level cxo --country US --total 50 --summary -o csv --output-file results.csv
+explorium businesses enrich --name "Acme Corp" -o table
+```
+
+### Single prospect with contacts
+
+```bash
+explorium prospects enrich contacts --first-name John --last-name Doe --company-name "Acme Corp"
 ```
 
 ### Discover valid filter values
@@ -155,154 +193,93 @@ explorium businesses autocomplete --query "React" --field tech
 explorium prospects autocomplete --query "founder" --field job-title
 ```
 
+### Search prospects by company name
+
+```bash
+# No need to resolve business_id manually -- --company-name does it internally
+explorium prospects search --company-name "Salesforce" --job-level cxo --country US --total 50 --summary -o csv --output-file results.csv
+```
+
+### Bulk: CSV in, enriched CSV out (recommended for files)
+
+```bash
+# One command: match + enrich, flat CSV output
+explorium prospects enrich-file -f leads.csv --types all -o csv --summary --output-file enriched.csv
+explorium businesses enrich-file -f companies.csv --types firmographics -o csv --summary --output-file enriched.csv
+```
+
+### Pipeline: match then enrich separately
+
+```bash
+# Match first
+explorium prospects match -f leads.csv -o csv --output-file matched.csv --summary
+# Then enrich the matched file directly (reads prospect_id column)
+explorium prospects bulk-enrich -f matched.csv --types all -o csv --output-file enriched.csv
+```
+
+### Search and collect
+
+```bash
+# Get 200 SaaS companies in the US
+explorium businesses search --country US --tech "Salesforce" --total 200 -o csv --output-file results.csv
+```
+
+### Balanced search across companies
+
+```bash
+# Get up to 5 prospects per company (searches each company in parallel)
+explorium prospects search -f biz_ids.csv --job-level cxo,vp --max-per-company 5 -o csv --output-file prospects.csv
+```
+
+### Full pipeline: companies -> filter -> prospects -> contacts
+
+```bash
+# 1. Find target companies
+explorium businesses search --country US --tech "Salesforce" --total 100 -o csv --output-file companies.csv
+# 2. Match to get business IDs
+explorium businesses match -f companies.csv --ids-only --output-file biz_ids.csv
+# 3. Search prospects across those companies
+explorium prospects search -f biz_ids.csv --job-level cxo,vp --has-email --total 200 -o csv --output-file prospects.csv
+# 4. Enrich with contacts
+explorium prospects bulk-enrich -f prospects.csv --types all -o csv --output-file enriched.csv
+```
+
+### AI Research: answer questions about companies
+
+```bash
+# Research a list of companies with a custom question
+explorium research run -f companies.csv --prompt "Does this company use Kubernetes?" -o csv --output-file researched.csv
+
+# With more control
+explorium research run -f companies.csv \
+  --prompt "What is this company's main product?" \
+  --threads 20 \
+  --max-searches 3 \
+  --verbose \
+  -o csv --output-file researched.csv
+```
+
 ### Event-Driven Marketing Leader Discovery
 
-**Goal**: Find marketing leadership at companies actively posting about events (conferences, webinars)
-
-**Input**: CSV file with messy prospect data (varying fields: name, company, email, LinkedIn URL)
-
-**Output**: Marketing VPs+ at event-active companies with contact information
-
-#### Step 1: Read and Validate Input File
+**Goal**: Find marketing leadership at companies actively posting about events
 
 ```bash
-# Read the input CSV to understand structure
-head -20 /Users/omer.har/Downloads/prospects_enriched_redacted.csv
-
-# Check what columns are available
-head -1 /Users/omer.har/Downloads/prospects_enriched_redacted.csv
-```
-
-**Expected columns** (may vary per row):
-- `first_name`, `last_name`, or `full_name`/`name`
-- `company_name` or `company`
-- `email` (some rows)
-- `linkedin` or `linkedin_url` (some rows)
-
-#### Step 2: Match and Enrich Prospects with Company Data
-
-Use `enrich-file` to match prospects and get their company information in one step.
-
-```bash
-# Match and enrich prospects using the messy CSV
-# Gets prospect_id, business_id, and basic prospect data
-explorium prospects enrich-file \
-  -f /Users/omer.har/Downloads/prospects_enriched_redacted.csv \
-  --types firmographics \
-  --summary \
-  -o csv \
-  --output-file matched_prospects.csv
-```
-
-**What happens**:
-- Rows with email → matched by email (most accurate)
-- Rows with LinkedIn URL → matched by LinkedIn
-- Rows with only name + company → matched by name + company
-- Output includes `prospect_id`, `business_id`, and all matched prospect data
-- The `business_id` column is what we'll use in the next step
-
-#### Step 3: Enrich Companies with Social Posts
-
-```bash
-# Enrich companies directly from matched prospects
-# enrich-file reads the business_id column and ignores other columns
-explorium businesses enrich-file \
-  -f matched_prospects.csv \
-  --types all \
-  --summary \
-  -o json \
-  --output-file companies_with_social.json
-```
-
-**Note**: The CLI automatically uses the `business_id` column from `matched_prospects.csv` and ignores all other columns (like prospect names, emails, etc.). No need to create a separate file with only business IDs.
-
-#### Step 4: Filter Companies with Event-Related Posts
-
-```bash
-# Use jq to filter companies that have social posts mentioning events
-jq -r '
-  select(.social_posts != null) |
-  select(
-    .social_posts | tostring |
-    test("(?i)(conference|webinar|event|summit|meetup|workshop|seminar)"; "i")
-  ) |
-  .business_id
-' companies_with_social.json > event_companies.txt
-
-# Create CSV for next step
-echo "business_id" > event_companies.csv
-cat event_companies.txt >> event_companies.csv
-
-# Count how many companies matched
-echo "Companies with event posts: $(wc -l < event_companies.txt)"
-```
-
-**Event keywords checked**:
-- conference, webinar, event, summit, meetup, workshop, seminar (case-insensitive)
-
-#### Step 5: Find Marketing Leadership at Event-Active Companies
-
-```bash
-# Search for Marketing VPs+ at these companies
-# Use --max-per-company to get balanced results (up to 3 per company)
-explorium prospects search \
-  -f event_companies.csv \
-  --department "Marketing" \
-  --job-level "cxo,vp" \
-  --has-email \
-  --max-per-company 3 \
-  -o csv \
-  --output-file marketing_leaders.csv \
-  --summary
-```
-
-**Filters applied**:
-- Department: Marketing only
-- Seniority: C-level and VP level
-- Must have email address
-- Max 3 per company (balanced across all companies)
-
-#### Step 6: Enrich with Full Contact Information
-
-```bash
-# Enrich marketing leaders with email + phone
-explorium prospects enrich-file \
-  -f marketing_leaders.csv \
-  --types contacts \
-  --summary \
-  -o csv \
-  --output-file final_marketing_leaders.csv
-```
-
-**Final output**: `final_marketing_leaders.csv` contains:
-- Marketing VPs and C-level executives
-- At companies actively posting about events
-- With enriched email and phone numbers
-- Up to 3 prospects per company
-
-#### Complete Pipeline (All Steps)
-
-```bash
-# Full automated pipeline
 # Step 1: Match and enrich prospects (gets business_id)
 explorium prospects enrich-file \
-  -f /Users/omer.har/Downloads/prospects_enriched_redacted.csv \
+  -f prospects.csv \
   --types firmographics \
   --summary \
-  -o csv \
-  --output-file matched_prospects.csv
+  -o csv --output-file matched_prospects.csv
 
 # Step 2: Enrich companies with social posts
-# Uses business_id column from matched_prospects.csv directly
 explorium businesses enrich-file \
   -f matched_prospects.csv \
   --types all \
   --summary \
-  -o json \
-  --output-file companies_with_social.json
+  -o json --output-file companies_with_social.json
 
 # Step 3: Filter for event posts
-jq -r 'select(.social_posts != null) | select(.social_posts | tostring | test("(?i)(conference|webinar|event|summit|meetup|workshop|seminar)"; "i")) | .business_id' companies_with_social.json > event_companies.txt
+jq -r 'select(.social_posts != null) | select(.social_posts | tostring | test("(?i)(conference|webinar|event|summit)")) | .business_id' companies_with_social.json > event_companies.txt
 echo "business_id" > event_companies.csv
 cat event_companies.txt >> event_companies.csv
 
@@ -313,45 +290,32 @@ explorium prospects search \
   --job-level "cxo,vp" \
   --has-email \
   --max-per-company 3 \
-  -o csv \
-  --output-file marketing_leaders.csv \
-  --summary
+  -o csv --output-file marketing_leaders.csv --summary
 
 # Step 5: Enrich with contacts
 explorium prospects enrich-file \
   -f marketing_leaders.csv \
   --types contacts \
   --summary \
-  -o csv \
-  --output-file final_marketing_leaders.csv
-
-echo "✓ Pipeline complete! Results in: final_marketing_leaders.csv"
+  -o csv --output-file final_marketing_leaders.csv
 ```
-
-#### Error Handling and Validation
-
-At each step, check the `--summary` output:
-- **Step 2**: Prospect match rate (target: >70%)
-- **Step 3**: Companies enriched with social data successfully
-- **Step 4**: Number of companies with event posts
-- **Step 5**: Marketing leaders found per company
-- **Step 6**: Contact enrichment rate (emails/phones added)
-
-#### Constraints
-
-- ✅ **Use ONLY Explorium CLI** for all operations
-- ❌ **DO NOT use Vibe Prospecting MCP**
-- ✅ Use `jq` for JSON filtering (system tool, allowed)
-- ✅ Use `cut`, `sort`, `echo` for CSV manipulation (system tools, allowed)
 
 ## Important Notes
 
-- Match-based enrichment: All enrich commands accept `--name`/`--domain`/`--linkedin` instead of `--id` — the CLI resolves the ID automatically
-- `enrich-file` is the fastest path for CSV workflows — combines match + enrich in one command
+- Match-based enrichment: All enrich commands accept `--name`/`--domain`/`--linkedin` instead of `--id` -- the CLI resolves the ID automatically
+- `--min-confidence` (default 0.8): Lower to 0.5-0.7 for fuzzy matches
+- `enrich-file` is the fastest path for CSV workflows -- combines match + enrich in one command
 - CSV output flattens nested JSON automatically for spreadsheet use
 - `--summary` shows matched/not-found/error counts on stderr
 - `--company-name` on `prospects search`: resolves company names to business IDs automatically (accepts comma-separated names)
 - `prospects search --summary`: prints aggregate stats (countries, job levels, companies, email/phone counts) to stderr
 - `--field` on autocomplete: discover valid values for `--industry`, `--tech`, `--job-title`, `--department`
 - `-f -` reads from stdin on all file-accepting commands (auto-detects CSV vs JSON)
-- All batch operations retry on transient errors (422, 429, 500-504, ConnectionError, Timeout) with exponential backoff. Failed batches are skipped and partial results are returned.
+- All batch operations retry on transient errors (429, 500-504, ConnectionError, Timeout) with exponential backoff. Failed batches are skipped and partial results are returned.
+- `research run` requires `ANTHROPIC_API_KEY` env var. Uses Sonnet for prompt polishing and Haiku + web search for per-company research.
+
+## Constraints
+
+- Use ONLY Explorium CLI for all data operations
+- DO NOT use Vibe Prospecting MCP for operations the CLI can handle
+- Use `jq`, `cut`, `sort`, `echo` for post-processing (system tools, allowed)

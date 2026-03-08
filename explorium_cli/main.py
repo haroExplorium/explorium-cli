@@ -54,11 +54,13 @@ from explorium_cli.commands.config_cmd import config_group
 from explorium_cli.commands.businesses import businesses
 from explorium_cli.commands.prospects import prospects
 from explorium_cli.commands.webhooks import webhooks
+from explorium_cli.commands.research_cmd import research
 
 cli.add_command(config_group, name="config")
 cli.add_command(businesses)
 cli.add_command(prospects)
 cli.add_command(webhooks)
+cli.add_command(research)
 
 
 if __name__ == "__main__":
