@@ -48,4 +48,21 @@ else
     echo "Warning: No API key found. Run: explorium config init -k <KEY>" >&2
 fi
 
+# 7. Locate Anthropic API key (needed for research command)
+ANTHROPIC_KEY_FILE="$HOME/.anthropic/api_key"
+
+if [ ! -f "$ANTHROPIC_KEY_FILE" ] || [ ! -s "$ANTHROPIC_KEY_FILE" ]; then
+    for d in "$PERSISTENT_DIR"/*/; do
+        ALT="$d.anthropic/api_key"
+        [ -f "$ALT" ] && [ -s "$ALT" ] && ANTHROPIC_KEY_FILE="$ALT" && break
+    done
+fi
+
+if [ -f "$ANTHROPIC_KEY_FILE" ] && [ -s "$ANTHROPIC_KEY_FILE" ]; then
+    export ANTHROPIC_API_KEY=$(cat "$ANTHROPIC_KEY_FILE")
+    echo "Anthropic API key configured from $ANTHROPIC_KEY_FILE" >&2
+elif [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+    echo "Warning: No Anthropic API key found. Research command won't work." >&2
+fi
+
 echo "Setup complete" >&2
