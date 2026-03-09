@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PERSISTENT_DIR="${PERSISTENT_DIR:-$HOME}"
 cd "$SCRIPT_DIR"
 
 # 1. Pull latest
@@ -24,14 +25,27 @@ mkdir -p "$SKILL_DIR"
 cp "$SCRIPT_DIR/skills/SKILL.md" "$SKILL_DIR/SKILL.md"
 echo "Skill synced to $SKILL_DIR" >&2
 
-# 5. Configure API key if provided and not already set
-if [[ -n "${EXPLORIUM_API_KEY:-}" ]]; then
-    if ! explorium config show 2>/dev/null | grep -q "NOT SET"; then
-        echo "API key already configured" >&2
-    else
-        explorium config init -k "$EXPLORIUM_API_KEY" 2>&1 >&2
-        echo "API key configured" >&2
-    fi
+# 5. Locate API key file
+KEY_FILE="$HOME/.explorium/api_key"
+
+# Also check inside the user's workspace folder (Cowork/)
+if [ ! -f "$KEY_FILE" ] || [ ! -s "$KEY_FILE" ]; then
+    for d in "$PERSISTENT_DIR"/*/; do
+        ALT="$d.explorium/api_key"
+        [ -f "$ALT" ] && [ -s "$ALT" ] && KEY_FILE="$ALT" && break
+    done
+fi
+
+# 6. Configure API key
+if [ -f "$KEY_FILE" ] && [ -s "$KEY_FILE" ]; then
+    API_KEY=$(cat "$KEY_FILE")
+    explorium config init -k "$API_KEY" 2>&1 >&2
+    echo "API key configured from $KEY_FILE" >&2
+elif [[ -n "${EXPLORIUM_API_KEY:-}" ]]; then
+    explorium config init -k "$EXPLORIUM_API_KEY" 2>&1 >&2
+    echo "API key configured from env" >&2
+else
+    echo "Warning: No API key found. Run: explorium config init -k <KEY>" >&2
 fi
 
 echo "Setup complete" >&2
