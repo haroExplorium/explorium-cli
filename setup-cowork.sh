@@ -30,7 +30,7 @@ KEY_FILE="$HOME/.explorium/api_key"
 
 # Also check inside the user's workspace folder (Cowork/)
 if [ ! -f "$KEY_FILE" ] || [ ! -s "$KEY_FILE" ]; then
-    for d in "$PERSISTENT_DIR"/*/; do
+    for d in "$PERSISTENT_DIR"/*/ "$PERSISTENT_DIR"/*/*/; do
         ALT="$d.explorium/api_key"
         [ -f "$ALT" ] && [ -s "$ALT" ] && KEY_FILE="$ALT" && break
     done
@@ -52,7 +52,7 @@ fi
 ANTHROPIC_KEY_FILE="$HOME/.anthropic/api_key"
 
 if [ ! -f "$ANTHROPIC_KEY_FILE" ] || [ ! -s "$ANTHROPIC_KEY_FILE" ]; then
-    for d in "$PERSISTENT_DIR"/*/; do
+    for d in "$PERSISTENT_DIR"/*/ "$PERSISTENT_DIR"/*/*/; do
         ALT="$d.anthropic/api_key"
         [ -f "$ALT" ] && [ -s "$ALT" ] && ANTHROPIC_KEY_FILE="$ALT" && break
     done

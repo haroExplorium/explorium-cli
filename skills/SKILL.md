@@ -1,6 +1,6 @@
 ---
 name: vibe-prospecting-multistep-workflow
-version: 1.3.5
+version: 1.3.8
 description: Use when needing to look up companies, find prospects, enrich contacts with emails and phone numbers, match businesses or people to Explorium IDs, get firmographics, technographics, funding data, or any B2B sales intelligence. Use when user mentions Explorium, prospect enrichment, company data, or lead research via CLI.
 ---
 
@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/haroExplorium/explorium-cli/main/in
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### Configure API key
+### Configure Explorium API key
 
 ```bash
 explorium config show
@@ -49,6 +49,18 @@ If output shows `api_key: NOT SET` (exit code 1), ask the user for their Explori
 ```bash
 explorium config init -k <API_KEY>
 ```
+
+The setup script auto-discovers the key from: `~/.explorium/api_key` → `$PERSISTENT_DIR/*/.explorium/api_key` → `EXPLORIUM_API_KEY` env var.
+
+### Configure Anthropic API key (for research command)
+
+The `research run` command requires an Anthropic API key. Set it via:
+
+```bash
+export ANTHROPIC_API_KEY=<YOUR_KEY>
+```
+
+The setup script auto-discovers the key from: `~/.anthropic/api_key` → `$PERSISTENT_DIR/*/.anthropic/api_key` → `ANTHROPIC_API_KEY` env var.
 
 ## Global Options
 
