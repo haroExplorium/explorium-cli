@@ -272,6 +272,11 @@ explorium research run -f companies.csv \
   --max-searches 3 \
   --verbose \
   -o csv --output-file researched.csv
+
+# Find pain points and challenges for targeted outreach
+explorium research run -f companies.csv \
+  --prompt "What are this company's top business challenges and pain points? Look for recent layoffs, declining revenue, leadership changes, competitive pressure, or technology gaps." \
+  -o csv --output-file pain_points.csv
 ```
 
 ### Event-Driven Marketing Leader Discovery
