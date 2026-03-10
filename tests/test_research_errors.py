@@ -307,6 +307,81 @@ class TestResearchOutputFormat:
         assert "B2B" in result.output
 
     @patch("explorium_cli.commands.research_cmd.asyncio")
+    def test_table_output(self, mock_asyncio):
+        """Table output should work via -o table."""
+        from explorium_cli.main import cli
+
+        mock_asyncio.run.return_value = [
+            {"company_name": "Acme", "research_answer": "B2B", "research_reasoning": "found", "research_confidence": "high"},
+        ]
+
+        csv_content = "company_name\nAcme\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(csv_content)
+            f.flush()
+
+            runner = CliRunner(mix_stderr=False)
+            result = runner.invoke(cli, [
+                "-o", "table",
+                "research", "run",
+                "-f", f.name,
+                "--prompt", "test",
+                "--no-polish",
+            ])
+
+        assert result.exit_code == 0
+        assert "Acme" in result.output
+        assert "B2B" in result.output
+
+    @patch("explorium_cli.commands.research_cmd.asyncio")
+    def test_output_file_csv(self, mock_asyncio):
+        """--output-file should write CSV to disk, nothing to stdout."""
+        from explorium_cli.main import cli
+
+        mock_asyncio.run.return_value = [
+            {"company_name": "Acme", "research_answer": "B2B", "research_reasoning": "found", "research_confidence": "high"},
+            {"company_name": "Beta", "research_answer": "B2C", "research_reasoning": "checked", "research_confidence": "medium"},
+        ]
+
+        csv_content = "company_name\nAcme\nBeta\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(csv_content)
+            f.flush()
+            input_path = f.name
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as out:
+            output_path = out.name
+
+        runner = CliRunner(mix_stderr=False)
+        result = runner.invoke(cli, [
+            "-o", "csv",
+            "--output-file", output_path,
+            "research", "run",
+            "-f", input_path,
+            "--prompt", "test",
+            "--no-polish",
+        ])
+
+        assert result.exit_code == 0
+
+        # Read the output file
+        with open(output_path) as f:
+            content = f.read()
+        assert "company_name" in content
+        assert "research_answer" in content
+        assert "B2B" in content
+        assert "B2C" in content
+
+        # Parse as CSV to verify structure
+        import csv as csv_mod
+        with open(output_path) as f:
+            reader = csv_mod.DictReader(f)
+            rows = list(reader)
+        assert len(rows) == 2
+        assert rows[0]["research_answer"] == "B2B"
+        assert rows[1]["research_answer"] == "B2C"
+
+    @patch("explorium_cli.commands.research_cmd.asyncio")
     def test_json_default(self, mock_asyncio):
         """Default output should be JSON."""
         from explorium_cli.main import cli

@@ -1,6 +1,6 @@
 ---
 name: vibe-prospecting-multistep-workflow
-version: 1.4.0
+version: 1.4.1
 description: Use when needing to look up companies, find prospects, enrich contacts with emails and phone numbers, match businesses or people to Explorium IDs, get firmographics, technographics, funding data, or any B2B sales intelligence. Use when user mentions Explorium, prospect enrichment, company data, or lead research via CLI.
 ---
 
@@ -128,7 +128,7 @@ AI-powered company research using Claude + web search. Requires `ANTHROPIC_API_K
 
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
-| `research run` | Research companies with AI + web search | `-f FILE`, `--prompt`, `--threads`, `--max-searches`, `--no-polish`, `--verbose` |
+| `research run` | Research companies with AI + web search | `-f FILE`, `--prompt`, `--threads`, `--max-searches`, `--no-polish`, `--verbose`. Supports global `-o` and `--output-file` |
 
 #### `research run`
 
@@ -142,6 +142,8 @@ Reads a CSV/JSON file, asks a question about each company using AI with web sear
 --no-polish                Skip prompt polishing with Sonnet
 -v, --verbose              Show detailed progress and polished prompt
 ```
+
+Supports the global `-o {json|table|csv}` and `--output-file PATH` options for output formatting, just like all other commands.
 
 **How it works:**
 1. Reads input file and auto-detects company name and domain columns
