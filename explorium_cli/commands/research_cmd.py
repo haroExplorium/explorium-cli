@@ -35,12 +35,6 @@ def research():
     help="Max concurrent research tasks",
 )
 @click.option(
-    "--max-searches",
-    default=5,
-    show_default=True,
-    help="Max web searches per company",
-)
-@click.option(
     "--no-polish",
     is_flag=True,
     default=False,
@@ -53,7 +47,7 @@ def research():
     help="Show detailed progress and polished prompt",
 )
 @click.pass_context
-def run(ctx, input_file, prompt, threads, max_searches, no_polish, verbose):
+def run(ctx, input_file, prompt, threads, no_polish, verbose):
     """Research companies using AI + web search.
 
     Reads a CSV/JSON file, asks a question about each company using AI
@@ -73,7 +67,7 @@ def run(ctx, input_file, prompt, threads, max_searches, no_polish, verbose):
             records=records,
             prompt=prompt,
             threads=threads,
-            max_searches=max_searches,
+            max_searches=2,
             no_polish=no_polish,
             verbose=verbose,
         )

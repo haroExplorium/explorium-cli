@@ -1,6 +1,6 @@
 ---
 name: vibe-prospecting-multistep-workflow
-version: 1.4.2
+version: 1.4.3
 description: Use when needing to look up companies, find prospects, enrich contacts with emails and phone numbers, match businesses or people to Explorium IDs, get firmographics, technographics, funding data, or any B2B sales intelligence. Use when user mentions Explorium, prospect enrichment, company data, or lead research via CLI.
 ---
 
@@ -128,7 +128,7 @@ AI-powered company research using Claude + web search. Requires `ANTHROPIC_API_K
 
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
-| `research run` | Research companies with AI + web search | `-f FILE`, `--prompt`, `--threads`, `--max-searches`, `--no-polish`, `--verbose`. Supports global `-o` and `--output-file` |
+| `research run` | Research companies with AI + web search | `-f FILE`, `--prompt`, `--threads`, `--no-polish`, `--verbose`. Supports global `-o` and `--output-file` |
 
 #### `research run`
 
@@ -138,7 +138,6 @@ Reads a CSV/JSON file, asks a question about each company using AI with web sear
 -f, --file FILENAME        Input CSV or JSON file with company records  [required]
 -p, --prompt TEXT          Research question to answer for each company  [required]
 -t, --threads INTEGER      Max concurrent research tasks (default: 10)
---max-searches INTEGER     Max web searches per company (default: 5)
 --no-polish                Skip prompt polishing with Sonnet
 -v, --verbose              Show detailed progress and polished prompt
 ```
@@ -284,7 +283,6 @@ explorium research run -f companies.csv --prompt "Does this company use Kubernet
 explorium research run -f companies.csv \
   --prompt "What is this company's main product?" \
   --threads 20 \
-  --max-searches 3 \
   --verbose \
   -o csv --output-file researched.csv
 
