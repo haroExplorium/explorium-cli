@@ -747,6 +747,19 @@ def batched_enrich(
     Raises:
         click.Abort: If any batch fails after all retries
     """
+    # Defensive null guard: filter out None/empty IDs
+    original_count = len(ids)
+    ids = [id for id in ids if id and str(id).strip()]
+    filtered_count = original_count - len(ids)
+    if filtered_count > 0:
+        click.echo(
+            f"Warning: Filtered {filtered_count} null/empty ID(s) before enrichment.",
+            err=True,
+        )
+
+    if not ids:
+        return {"status": "success", "data": []}
+
     total_ids = len(ids)
     num_batches = math.ceil(total_ids / batch_size)
 

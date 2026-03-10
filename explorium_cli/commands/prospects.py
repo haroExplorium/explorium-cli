@@ -12,6 +12,8 @@ from explorium_cli.formatters import output, output_error
 from explorium_cli.api.client import APIError
 from explorium_cli.pagination import paginated_fetch
 from explorium_cli.parallel_search import parallel_prospect_search
+from explorium_cli.constants import VALID_DEPARTMENTS, VALID_JOB_LEVELS, DEPARTMENT_ALIASES, JOB_LEVEL_ALIASES
+from explorium_cli.validation import validate_filter_values
 from explorium_cli.batching import parse_csv_ids, parse_csv_ids_with_rows, parse_csv_prospect_match_params, batched_enrich, batched_match, normalize_linkedin_url, read_input_file, merge_enrichment_results
 from explorium_cli.match_utils import (
     prospect_match_options,
@@ -288,8 +290,8 @@ def match(
     type=click.File("r"),
     help="CSV file with 'business_id' column (other columns are ignored)"
 )
-@click.option("--job-level", help="Job levels (comma-separated: cxo,vp,director,manager,senior,entry)")
-@click.option("--department", help="Departments (comma-separated)")
+@click.option("--job-level", help="Job levels (comma-separated). Valid: cxo, vp, director, manager, senior, entry, training, owner, partner, unpaid")
+@click.option("--department", help="Departments (comma-separated). Valid: administration, c-suite, creative, customer success, data, design, education, engineering, finance, healthcare, human resources, it, legal, logistics, manufacturing, marketing, operations, partnerships, procurement, product, public service, r&d, real estate, retail, sales, security, strategy, support, trade")
 @click.option("--job-title", help="Job title keywords")
 @click.option("--country", help="Country codes (comma-separated)")
 @click.option("--has-email", is_flag=True, help="Only prospects with email")
@@ -368,9 +370,15 @@ def search(
     if business_ids:
         filters["business_id"] = {"type": "includes", "values": business_ids}
     if job_level:
-        filters["job_level"] = {"type": "includes", "values": job_level.split(",")}
+        level_values = validate_filter_values(
+            job_level.split(","), VALID_JOB_LEVELS, JOB_LEVEL_ALIASES, "job-level"
+        )
+        filters["job_level"] = {"type": "includes", "values": level_values}
     if department:
-        filters["job_department"] = {"type": "includes", "values": department.split(",")}
+        dept_values = validate_filter_values(
+            department.split(","), VALID_DEPARTMENTS, DEPARTMENT_ALIASES, "department"
+        )
+        filters["job_department"] = {"type": "includes", "values": dept_values}
     if job_title:
         filters["job_title"] = {"type": "any_match_phrase", "values": [job_title], "include_related_job_titles": True}
     if country:
@@ -771,10 +779,24 @@ def enrich_file(
                 click.echo(f"  ... and {len(match_failures) - 5} more", err=True)
 
     total_input = len(match_params_list)
-    click.echo(f"Matched: {len(prospect_ids)}/{total_input}, Failed: {len(match_failures)}", err=True)
+    matched_count = len(prospect_ids)
+    failed_count = len(match_failures)
+    click.echo(f"Match phase: {matched_count} matched / {failed_count} not found", err=True)
+
+    # Partition: enrichable (valid IDs) vs unenrichable (failed matches)
+    unenrichable_rows = [(params, error) for _, params, error in match_failures]
 
     if not prospect_ids:
-        raise click.UsageError("No prospects could be matched from file")
+        # No matches at all — output unenrichable rows with input_ columns only
+        output_data = []
+        for params, _error in unenrichable_rows:
+            output_data.append({f"input_{k}": v for k, v in params.items()})
+        result = {"status": "success", "data": output_data}
+        output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
+        if summary:
+            click.echo(f"Enrich phase: 0 enriched / 0 failed", err=True)
+            click.echo(f"Output: {len(output_data)} total rows (0 enriched + {len(output_data)} match-only)", err=True)
+        return
 
     # Route to correct enrichment method(s)
     methods = _resolve_enrichment_methods(types.strip(), prospects_api)
@@ -798,7 +820,19 @@ def enrich_file(
                 for k, v in id_to_input[pid].items():
                     row[f"input_{k}"] = v
 
+    # Append unenrichable rows with input_ columns and empty enrichment
+    enriched_count = len(enriched_data) if isinstance(enriched_data, list) else 0
+    if unenrichable_rows and isinstance(enriched_data, list):
+        for params, _error in unenrichable_rows:
+            enriched_data.append({f"input_{k}": v for k, v in params.items()})
+
     output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
+
+    if summary:
+        unenrichable_count = len(unenrichable_rows)
+        total_output = enriched_count + unenrichable_count
+        click.echo(f"Enrich phase: {enriched_count} enriched / {matched_count - enriched_count} failed", err=True)
+        click.echo(f"Output: {total_output} total rows ({enriched_count} enriched + {unenrichable_count} match-only)", err=True)
 
 
 @prospects.command()

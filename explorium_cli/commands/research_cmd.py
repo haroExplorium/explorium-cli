@@ -79,7 +79,20 @@ def run(ctx, input_file, prompt, threads, max_searches, no_polish, verbose):
         )
     )
 
+    # Check for total/partial failure
+    error_count = sum(
+        1 for r in results
+        if r.get("research_answer", "").startswith("Error:")
+        or r.get("research_answer", "").startswith("Skipped:")
+    )
+
     # Output using existing formatter
     fmt = ctx.obj.get("output", "json") if ctx.obj else "json"
     file_path = ctx.obj.get("output_file") if ctx.obj else None
     output(results, format=fmt, title="Research Results", file_path=file_path)
+
+    if error_count == len(results):
+        click.echo(f"Error: All {len(results)} research tasks failed.", err=True)
+        ctx.exit(1)
+    elif error_count > 0:
+        click.echo(f"Warning: {error_count}/{len(results)} research tasks failed.", err=True)

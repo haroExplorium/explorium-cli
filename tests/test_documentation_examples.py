@@ -1011,7 +1011,7 @@ class TestProspectSearchExamples:
             "--department", "Engineering"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"type": "includes", "values": ["id1"]}, "job_department": {"type": "includes", "values": ["Engineering"]}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "job_department": {"type": "includes", "values": ["engineering"]}},
             size=100,
             page_size=100,
             page=1
@@ -1026,7 +1026,7 @@ class TestProspectSearchExamples:
             "--department", "Engineering,Product,Sales"
         ])
         mock_prospects_api.search.assert_called_once_with(
-            {"business_id": {"type": "includes", "values": ["id1"]}, "job_department": {"type": "includes", "values": ["Engineering", "Product", "Sales"]}},
+            {"business_id": {"type": "includes", "values": ["id1"]}, "job_department": {"type": "includes", "values": ["engineering", "product", "sales"]}},
             size=100,
             page_size=100,
             page=1
@@ -1168,7 +1168,7 @@ class TestProspectSearchExamples:
             {
                 "business_id": {"type": "includes", "values": ["id1"]},
                 "job_level": {"type": "includes", "values": ["cxo", "vp", "director"]},
-                "job_department": {"type": "includes", "values": ["Engineering"]},
+                "job_department": {"type": "includes", "values": ["engineering"]},
                 "has_email": {"type": "exists", "value": True}
             },
             size=100,
@@ -2228,7 +2228,7 @@ class TestFeature10Summary:
             "--summary"
         ])
         assert result.exit_code == 0
-        assert "Matched: 2/3, Failed: 1" in result.stderr
+        assert "Match phase: 2 matched / 1 not found" in result.stderr
 
     def test_business_bulk_enrich_with_summary(
         self, runner: CliRunner, config_file: Path, mock_businesses_api

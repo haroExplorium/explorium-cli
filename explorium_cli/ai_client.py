@@ -69,6 +69,34 @@ async def _call_with_retry(coro_factory, max_retries: int = MAX_RETRIES) -> Any:
             raise
 
 
+async def validate_anthropic_key() -> None:
+    """Quick check that the API key works before fanning out research tasks."""
+    client = _get_client()
+    try:
+        await client.messages.create(
+            model=HAIKU_MODEL,
+            max_tokens=1,
+            messages=[{"role": "user", "content": "hi"}],
+        )
+    except anthropic.AuthenticationError as e:
+        raise RuntimeError(f"Anthropic API key is invalid: {e}")
+    except anthropic.BadRequestError as e:
+        if "credit balance" in str(e).lower():
+            raise RuntimeError(f"Anthropic API key has no credits: {e}")
+        raise
+
+
+def is_permanent_error(e: Exception) -> bool:
+    """Check if an error is permanent (should not retry / should abort all)."""
+    if isinstance(e, anthropic.AuthenticationError):
+        return True
+    if isinstance(e, anthropic.BadRequestError):
+        msg = str(e).lower()
+        if "credit balance" in msg or "invalid" in msg:
+            return True
+    return False
+
+
 async def polish_prompt(raw_prompt: str) -> str:
     """Use Sonnet to polish a raw research question into a precise prompt."""
     client = _get_client()
