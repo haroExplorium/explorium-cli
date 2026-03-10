@@ -27,10 +27,11 @@ POLISH_SYSTEM = (
 RESEARCH_SYSTEM = (
     "You are a company research analyst. Use web search to answer the question "
     "about the specified company. Be factual and concise.\n\n"
-    "You MUST respond in this exact format:\n"
-    "ANSWER: <your direct answer>\n"
-    "REASONING: <brief explanation of how you found this>\n"
-    "CONFIDENCE: <high|medium|low>"
+    "You MUST respond in this exact format (3 fields only, max 50 words each):\n"
+    "ANSWER: <your direct answer, max 50 words>\n"
+    "REASONING: <brief explanation of how you found this, max 50 words>\n"
+    "CONFIDENCE: <high|medium|low>\n\n"
+    "Keep each field strictly under 50 words. Do not add any other fields."
 )
 
 MAX_RETRIES = 3
@@ -194,5 +195,11 @@ def parse_research_response(text: str) -> dict[str, str]:
     if not result["answer"] and text.strip():
         result["answer"] = text.strip()
         result["confidence"] = "low"
+
+    # Enforce 50 word limit per field
+    for key in ("answer", "reasoning"):
+        words = result[key].split()
+        if len(words) > 50:
+            result[key] = " ".join(words[:50]) + "..."
 
     return result
