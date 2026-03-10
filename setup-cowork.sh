@@ -15,6 +15,9 @@ git pull --ff-only origin main 2>&1 | tail -1 >&2
 echo "Installing CLI..." >&2
 pip install -e . --break-system-packages -q 2>&1 | grep -v "notice" >&2 || true
 
+# 2b. Ensure ~/.local/bin is on PATH (pip installs the binary there)
+export PATH="$HOME/.local/bin:$PATH"
+
 # 3. Health check
 VERSION=$(explorium --version 2>/dev/null || echo "FAILED")
 echo "CLI version: $VERSION" >&2
@@ -28,7 +31,15 @@ echo "Skill synced to $SKILL_DIR" >&2
 # 5. Locate API key file
 KEY_FILE="$HOME/.explorium/api_key"
 
-# Also check inside the user's workspace folder (Cowork/)
+# Check well-known Cowork mount path first
+if [ ! -f "$KEY_FILE" ] || [ ! -s "$KEY_FILE" ]; then
+    COWORK_KEY="$HOME/mnt/Cowork/.explorium/api_key"
+    if [ -f "$COWORK_KEY" ] && [ -s "$COWORK_KEY" ]; then
+        KEY_FILE="$COWORK_KEY"
+    fi
+fi
+
+# Fallback: glob search inside workspace folders
 if [ ! -f "$KEY_FILE" ] || [ ! -s "$KEY_FILE" ]; then
     for d in "$PERSISTENT_DIR"/*/ "$PERSISTENT_DIR"/*/*/; do
         ALT="$d.explorium/api_key"
@@ -51,6 +62,15 @@ fi
 # 7. Locate Anthropic API key (needed for research command)
 ANTHROPIC_KEY_FILE="$HOME/.anthropic/api_key"
 
+# Check well-known Cowork mount path first
+if [ ! -f "$ANTHROPIC_KEY_FILE" ] || [ ! -s "$ANTHROPIC_KEY_FILE" ]; then
+    COWORK_ANTHROPIC="$HOME/mnt/Cowork/.anthropic/api_key"
+    if [ -f "$COWORK_ANTHROPIC" ] && [ -s "$COWORK_ANTHROPIC" ]; then
+        ANTHROPIC_KEY_FILE="$COWORK_ANTHROPIC"
+    fi
+fi
+
+# Fallback: glob search inside workspace folders
 if [ ! -f "$ANTHROPIC_KEY_FILE" ] || [ ! -s "$ANTHROPIC_KEY_FILE" ]; then
     for d in "$PERSISTENT_DIR"/*/ "$PERSISTENT_DIR"/*/*/; do
         ALT="$d.anthropic/api_key"
