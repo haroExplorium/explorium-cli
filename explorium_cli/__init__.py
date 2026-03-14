@@ -1,3 +1,3 @@
 """Explorium CLI - interact with all Explorium API endpoints."""
 
-__version__ = "1.4.4"
+__version__ = "1.4.5"

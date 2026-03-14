@@ -210,13 +210,25 @@ def match(
 
 
 @businesses.command()
-@click.option("--country", help="Country codes (comma-separated)")
-@click.option("--size", help="Company size ranges (comma-separated)")
-@click.option("--revenue", help="Revenue ranges (comma-separated)")
-@click.option("--industry", help="Industry categories (comma-separated)")
-@click.option("--tech", help="Technologies (comma-separated)")
-@click.option("--events", help="Event types (comma-separated)")
-@click.option("--events-days", type=int, default=45, help="Days for event recency")
+@click.option("--country", help="Country codes, comma-separated (ISO Alpha-2, e.g. US,GB,DE)")
+@click.option("--region", help="Region codes, comma-separated (ISO 3166-2, e.g. us-ca,us-tx)")
+@click.option("--city", help="City locations, comma-separated (e.g. 'San Francisco, CA, US')")
+@click.option("--size", help="Company size ranges, comma-separated (1-10,11-50,51-200,201-500,501-1000,1001-5000,5001-10000,10001+)")
+@click.option("--revenue", help="Revenue ranges, comma-separated (0-500K,500K-1M,1M-5M,5M-10M,10M-25M,25M-75M,75M-200M,200M-500M,500M-1B,1B-10B,10B-100B)")
+@click.option("--company-age", help="Company age ranges in years, comma-separated (0-3,3-6,6-10,10-20,20+)")
+@click.option("--locations", help="Number of locations ranges, comma-separated (1,2-5,6+)")
+@click.option("--industry", help="LinkedIn industry categories, comma-separated (e.g. 'Software Development')")
+@click.option("--google-category", help="Google business categories, comma-separated")
+@click.option("--naics", help="NAICS industry codes, comma-separated (e.g. 23,5611,541512)")
+@click.option("--tech", help="Technologies, comma-separated (e.g. JavaScript,AWS)")
+@click.option("--tech-category", help="Technology categories, comma-separated (e.g. CRM,Marketing,Cloud Services)")
+@click.option("--keywords", help="Website keywords, comma-separated")
+@click.option("--intent", help="Bombora intent topics, comma-separated (e.g. 'Security:Cloud Security')")
+@click.option("--events", help="Event types, comma-separated (e.g. new_product,ipo_announcement)")
+@click.option("--events-days", type=int, default=45, help="Days for event recency (30-90, default: 45)")
+@click.option("--has-website", is_flag=True, default=None, help="Only companies with a website")
+@click.option("--is-public", is_flag=True, default=None, help="Only publicly traded companies")
+@click.option("--hq-only", is_flag=True, help="Match HQ location only (exclude operating locations)")
 @click.option("--total", type=int, help="Total records to collect (auto-paginate)")
 @click.option("--page", type=int, default=1, help="Page number (ignored if --total)")
 @click.option("--page-size", type=int, default=100, help="Results per page")
@@ -225,12 +237,24 @@ def match(
 def search(
     ctx: click.Context,
     country: Optional[str],
+    region: Optional[str],
+    city: Optional[str],
     size: Optional[str],
     revenue: Optional[str],
+    company_age: Optional[str],
+    locations: Optional[str],
     industry: Optional[str],
+    google_category: Optional[str],
+    naics: Optional[str],
     tech: Optional[str],
+    tech_category: Optional[str],
+    keywords: Optional[str],
+    intent: Optional[str],
     events: Optional[str],
     events_days: int,
+    has_website: Optional[bool],
+    is_public: Optional[bool],
+    hq_only: bool,
     total: Optional[int],
     page: int,
     page_size: int
@@ -239,23 +263,54 @@ def search(
     api = get_api(ctx)
     businesses_api = BusinessesAPI(api)
 
+    # Validate: only one category filter allowed
+    category_count = sum(1 for v in [industry, google_category, naics] if v)
+    if category_count > 1:
+        raise click.UsageError(
+            "Only one category filter allowed per request: --industry, --google-category, or --naics"
+        )
+
     filters = {}
     if country:
         filters["country_code"] = {"type": "includes", "values": country.split(",")}
+    if region:
+        filters["region_country_code"] = {"type": "includes", "values": region.split(",")}
+    if city:
+        filters["city_region_country"] = {"type": "includes", "values": city.split(",")}
     if size:
         filters["company_size"] = {"type": "includes", "values": size.split(",")}
     if revenue:
         filters["company_revenue"] = {"type": "includes", "values": revenue.split(",")}
+    if company_age:
+        filters["company_age"] = {"type": "includes", "values": company_age.split(",")}
+    if locations:
+        filters["number_of_locations"] = {"type": "includes", "values": locations.split(",")}
     if industry:
         filters["linkedin_category"] = {"type": "includes", "values": industry.split(",")}
+    if google_category:
+        filters["google_category"] = {"type": "includes", "values": google_category.split(",")}
+    if naics:
+        filters["naics_category"] = {"type": "includes", "values": naics.split(",")}
     if tech:
         filters["company_tech_stack_tech"] = {"type": "includes", "values": tech.split(",")}
+    if tech_category:
+        filters["company_tech_stack_category"] = {"type": "includes", "values": tech_category.split(",")}
+    if keywords:
+        filters["website_keywords"] = {"type": "includes", "values": keywords.split(",")}
+    if intent:
+        filters["business_intent_topics"] = {"type": "includes", "values": intent.split(",")}
     if events:
         filters["events"] = {
             "type": "includes",
             "values": events.split(","),
             "last_occurrence": events_days
         }
+    if has_website is not None:
+        filters["has_website"] = {"type": "exists", "value": True}
+    if is_public is not None:
+        filters["is_public_company"] = {"type": "exists", "value": True}
+    if hq_only:
+        filters["include_operating_locations"] = {"type": "exists", "value": False}
 
     if total:
         # Auto-paginate mode
