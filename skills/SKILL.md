@@ -141,9 +141,9 @@ See `commands-reference.md` in this directory for the full command reference wit
 | Option | Description | Valid Values |
 |--------|-------------|--------------|
 | `--size` | Employee count ranges, comma-separated | `1-10`, `11-50`, `51-200`, `201-500`, `501-1000`, `1001-5000`, `5001-10000`, `10001+` |
-| `--revenue` | Revenue ranges, comma-separated | `0-500K`, `500K-1M`, `1M-5M`, `5M-10M`, `10M-25M`, `25M-75M`, `75M-200M`, `200M-500M`, `500M-1B`, `1B-10B`, `10B-100B` |
+| `--revenue` | Revenue ranges, comma-separated | `0-500K`, `500K-1M`, `1M-5M`, `5M-10M`, `10M-25M`, `25M-75M`, `75M-200M`, `200M-500M`, `500M-1B`, `1B-10B`, `10B-100B`, `100B-1T`, `1T-10T`, `10T+` |
 | `--company-age` | Company age in years, comma-separated | `0-3`, `3-6`, `6-10`, `10-20`, `20+` |
-| `--locations` | Number of locations, comma-separated | `1`, `2-5`, `6+` |
+| `--locations` | Number of locations, comma-separated | `0-1`, `2-5`, `6-20`, `21-50`, `51-100`, `101-1000`, `1001+` |
 
 #### Industry & Category (mutually exclusive — pick one)
 
@@ -168,8 +168,9 @@ Use `explorium businesses autocomplete --query "..." --field tech` to discover v
 
 | Option | Description | Example |
 |--------|-------------|---------|
-| `--keywords` | Website keywords, comma-separated | `"machine learning"`, `"cloud migration"` |
+| `--keywords` | Website keywords (phrase match), comma-separated | `"machine learning"`, `"cloud migration"` |
 | `--intent` | Bombora intent topics, comma-separated | `"Security:Cloud Security"` |
+| `--intent-level` | Intent signal strength | `high_intent` |
 | `--events` | Business event types, comma-separated | `new_product`, `ipo_announcement` |
 | `--events-days` | Event recency window (30-90 days, default: 45) | `30`, `90` |
 

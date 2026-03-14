@@ -305,7 +305,7 @@ def match(
 @click.option("--role-tenure-min", type=int, help="Min current role tenure (months)")
 @click.option("--role-tenure-max", type=int, help="Max current role tenure (months)")
 @click.option("--company-size", "comp_size", help="Company size ranges, comma-separated (1-10,11-50,51-200,201-500,501-1000,1001-5000,5001-10000,10001+)")
-@click.option("--company-revenue", "comp_revenue", help="Company revenue ranges, comma-separated (0-500K,500K-1M,...,10B-100B)")
+@click.option("--company-revenue", "comp_revenue", help="Company revenue ranges, comma-separated (0-500K,500K-1M,...,10B-100B,100B-1T,1T-10T,10T+)")
 @click.option("--company-country", help="Company HQ country codes, comma-separated (ISO Alpha-2)")
 @click.option("--company-region", help="Company HQ region codes, comma-separated (ISO 3166-2)")
 @click.option("--industry", help="LinkedIn industry categories, comma-separated")

@@ -214,9 +214,9 @@ def match(
 @click.option("--region", help="Region codes, comma-separated (ISO 3166-2, e.g. us-ca,us-tx)")
 @click.option("--city", help="City locations, comma-separated (e.g. 'San Francisco, CA, US')")
 @click.option("--size", help="Company size ranges, comma-separated (1-10,11-50,51-200,201-500,501-1000,1001-5000,5001-10000,10001+)")
-@click.option("--revenue", help="Revenue ranges, comma-separated (0-500K,500K-1M,1M-5M,5M-10M,10M-25M,25M-75M,75M-200M,200M-500M,500M-1B,1B-10B,10B-100B)")
+@click.option("--revenue", help="Revenue ranges, comma-separated (0-500K,500K-1M,1M-5M,5M-10M,10M-25M,25M-75M,75M-200M,200M-500M,500M-1B,1B-10B,10B-100B,100B-1T,1T-10T,10T+)")
 @click.option("--company-age", help="Company age ranges in years, comma-separated (0-3,3-6,6-10,10-20,20+)")
-@click.option("--locations", help="Number of locations ranges, comma-separated (1,2-5,6+)")
+@click.option("--locations", help="Number of locations ranges, comma-separated (0-1,2-5,6-20,21-50,51-100,101-1000,1001+)")
 @click.option("--industry", help="LinkedIn industry categories, comma-separated (e.g. 'Software Development')")
 @click.option("--google-category", help="Google business categories, comma-separated")
 @click.option("--naics", help="NAICS industry codes, comma-separated (e.g. 23,5611,541512)")
@@ -224,6 +224,7 @@ def match(
 @click.option("--tech-category", help="Technology categories, comma-separated (e.g. CRM,Marketing,Cloud Services)")
 @click.option("--keywords", help="Website keywords, comma-separated")
 @click.option("--intent", help="Bombora intent topics, comma-separated (e.g. 'Security:Cloud Security')")
+@click.option("--intent-level", type=click.Choice(["high_intent"], case_sensitive=False), default=None, help="Intent signal strength filter")
 @click.option("--events", help="Event types, comma-separated (e.g. new_product,ipo_announcement)")
 @click.option("--events-days", type=int, default=45, help="Days for event recency (30-90, default: 45)")
 @click.option("--has-website", is_flag=True, default=None, help="Only companies with a website")
@@ -250,6 +251,7 @@ def search(
     tech_category: Optional[str],
     keywords: Optional[str],
     intent: Optional[str],
+    intent_level: Optional[str],
     events: Optional[str],
     events_days: int,
     has_website: Optional[bool],
@@ -296,9 +298,12 @@ def search(
     if tech_category:
         filters["company_tech_stack_category"] = {"type": "includes", "values": tech_category.split(",")}
     if keywords:
-        filters["website_keywords"] = {"type": "includes", "values": keywords.split(",")}
+        filters["website_keywords"] = {"type": "any_match_phrase", "values": keywords.split(",")}
     if intent:
-        filters["business_intent_topics"] = {"type": "includes", "values": intent.split(",")}
+        intent_filter: dict = {"type": "business_intent_topics", "topics": intent.split(",")}
+        if intent_level:
+            intent_filter["topic_intent_level"] = intent_level
+        filters["business_intent_topics"] = intent_filter
     if events:
         filters["events"] = {
             "type": "includes",

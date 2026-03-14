@@ -100,11 +100,19 @@ class TestBusinessSearchFilters:
 
     def test_keywords_filter(self, runner, config_with_key):
         filters = self._run_search(runner, config_with_key, ["--keywords", "machine learning,AI"])
-        assert filters["website_keywords"] == {"type": "includes", "values": ["machine learning", "AI"]}
+        assert filters["website_keywords"] == {"type": "any_match_phrase", "values": ["machine learning", "AI"]}
 
     def test_intent_filter(self, runner, config_with_key):
         filters = self._run_search(runner, config_with_key, ["--intent", "Security:Cloud Security"])
-        assert filters["business_intent_topics"] == {"type": "includes", "values": ["Security:Cloud Security"]}
+        assert filters["business_intent_topics"] == {"type": "business_intent_topics", "topics": ["Security:Cloud Security"]}
+
+    def test_intent_filter_with_level(self, runner, config_with_key):
+        filters = self._run_search(runner, config_with_key, ["--intent", "Security:Cloud Security", "--intent-level", "high_intent"])
+        assert filters["business_intent_topics"] == {
+            "type": "business_intent_topics",
+            "topics": ["Security:Cloud Security"],
+            "topic_intent_level": "high_intent",
+        }
 
     def test_events_filter(self, runner, config_with_key):
         filters = self._run_search(runner, config_with_key, ["--events", "new_product,ipo_announcement"])
