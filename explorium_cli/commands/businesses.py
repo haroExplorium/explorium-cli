@@ -180,6 +180,7 @@ def match(
             id_key="business_id",
             entity_name="businesses",
             preserve_input=True,
+            max_workers=ctx.obj.get("threads", 5),
         )
     except APIError as e:
         output_error(e.message, e.response)
@@ -685,30 +686,34 @@ def bulk_enrich(
     elif ids:
         business_ids = [id.strip() for id in ids.split(",")]
     elif match_file:
-        # Read match params and resolve each to IDs
+        # Read match params and resolve each to IDs (concurrent)
+        from explorium_cli.concurrency import concurrent_map
         match_params_list = json.load(match_file)
         match_failures = []
         total_to_match = len(match_params_list)
+        max_workers = ctx.obj.get("threads", 5)
 
         click.echo(f"Matching {total_to_match} businesses...", err=True)
 
-        for i, params in enumerate(match_params_list):
-            try:
-                resolved_id = resolve_business_id(
-                    businesses_api,
-                    name=params.get("name"),
-                    domain=params.get("domain"),
-                    linkedin=params.get("linkedin_url"),
-                    min_confidence=min_confidence
-                )
-                business_ids.append(resolved_id)
-            except (MatchError, LowConfidenceError) as e:
-                match_failures.append((i, params, str(e)))
-            except Exception as e:
-                match_failures.append((i, params, f"Error: {e}"))
+        def _resolve_one(params: dict) -> str:
+            return resolve_business_id(
+                businesses_api,
+                name=params.get("name"),
+                domain=params.get("domain"),
+                linkedin=params.get("linkedin_url"),
+                min_confidence=min_confidence
+            )
 
-            if (i + 1) % 10 == 0 or (i + 1) == total_to_match:
-                click.echo(f"  {i + 1}/{total_to_match} processed", err=True)
+        results = concurrent_map(
+            _resolve_one, match_params_list,
+            max_workers=max_workers, label="businesses",
+            show_progress=True,
+        )
+        for i, (success, result_or_exc) in enumerate(results):
+            if success:
+                business_ids.append(result_or_exc)
+            else:
+                match_failures.append((i, match_params_list[i], str(result_or_exc)))
 
         if match_failures:
             click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
@@ -729,6 +734,7 @@ def bulk_enrich(
         business_ids,
         entity_name="businesses",
         id_key="business_id",
+        max_workers=ctx.obj.get("threads", 5),
     )
 
     # Merge input columns from file if available
@@ -852,26 +858,34 @@ def enrich_file(
 
     total_to_match = len(rows_to_match)
     if total_to_match > 0:
+        from explorium_cli.concurrency import concurrent_map
+        max_workers = ctx.obj.get("threads", 5)
         click.echo(f"Matching {total_to_match} businesses...", err=True)
 
-        for seq, (i, params) in enumerate(rows_to_match):
-            try:
-                resolved_id = resolve_business_id(
-                    businesses_api,
-                    name=params.get("name"),
-                    domain=params.get("domain"),
-                    linkedin=params.get("linkedin_url"),
-                    min_confidence=min_confidence
-                )
+        def _resolve_one(item: tuple) -> tuple[int, dict, str]:
+            i, params = item
+            resolved_id = resolve_business_id(
+                businesses_api,
+                name=params.get("name"),
+                domain=params.get("domain"),
+                linkedin=params.get("linkedin_url"),
+                min_confidence=min_confidence
+            )
+            return (i, params, resolved_id)
+
+        results = concurrent_map(
+            _resolve_one, rows_to_match,
+            max_workers=max_workers, label="businesses",
+            show_progress=True,
+        )
+        for seq, (success, result_or_exc) in enumerate(results):
+            if success:
+                i, params, resolved_id = result_or_exc
                 business_ids.append(resolved_id)
                 id_to_input[resolved_id] = params
-            except (MatchError, LowConfidenceError) as e:
-                match_failures.append((i, params, str(e)))
-            except Exception as e:
-                match_failures.append((i, params, f"Error: {e}"))
-
-            if (seq + 1) % 10 == 0 or (seq + 1) == total_to_match:
-                click.echo(f"  {seq + 1}/{total_to_match} processed", err=True)
+            else:
+                i, params = rows_to_match[seq]
+                match_failures.append((i, params, str(result_or_exc)))
 
         if match_failures:
             click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
@@ -888,14 +902,15 @@ def enrich_file(
 
     # Route to correct enrichment method(s)
     methods = _resolve_business_enrichment_methods(types.strip(), businesses_api)
+    _mw = ctx.obj.get("threads", 5)
 
     if len(methods) == 1:
-        result = batched_enrich(methods[0][1], business_ids, entity_name="businesses", id_key="business_id")
+        result = batched_enrich(methods[0][1], business_ids, entity_name="businesses", id_key="business_id", max_workers=_mw)
     else:
         all_partials = []
         for label, api_method in methods:
             click.echo(f"Enriching {label}...", err=True)
-            partial = batched_enrich(api_method, business_ids, entity_name="businesses", id_key="business_id")
+            partial = batched_enrich(api_method, business_ids, entity_name="businesses", id_key="business_id", max_workers=_mw)
             all_partials.append(partial.get("data", []))
         result = {"status": "success", "data": merge_enrichment_results(all_partials, "business_id")}
 

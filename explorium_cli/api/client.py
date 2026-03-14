@@ -1,5 +1,6 @@
 """Base API client for Explorium."""
 
+import threading
 import time
 import requests
 from typing import Any, Optional
@@ -55,11 +56,24 @@ class ExploriumAPI:
         self.retry_delay = retry_delay
         self.retry_backoff = retry_backoff
         self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers.update({
-            "API_KEY": api_key,
-            "Content-Type": "application/json",
-        })
+        self._local = threading.local()
+
+    @property
+    def session(self) -> requests.Session:
+        """Return a per-thread requests.Session (backward-compatible property)."""
+        return self._get_session()
+
+    def _get_session(self) -> requests.Session:
+        """Lazily create a per-thread requests.Session with correct headers."""
+        s = getattr(self._local, "session", None)
+        if s is None:
+            s = requests.Session()
+            s.headers.update({
+                "API_KEY": self.api_key,
+                "Content-Type": "application/json",
+            })
+            self._local.session = s
+        return s
 
     def _should_retry(self, exception: Exception) -> bool:
         """

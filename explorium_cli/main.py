@@ -26,8 +26,15 @@ from explorium_cli.api.client import ExploriumAPI
     default=None,
     help="Write output to file (clean JSON/CSV, no formatting)"
 )
+@click.option(
+    "--threads", "-t",
+    type=int,
+    default=5,
+    show_default=True,
+    help="Max concurrent API requests"
+)
 @click.pass_context
-def cli(ctx: click.Context, config: str, output: str, output_file: str) -> None:
+def cli(ctx: click.Context, config: str, output: str, output_file: str, threads: int) -> None:
     """Explorium API CLI - interact with all Explorium endpoints."""
     ctx.ensure_object(dict)
 
@@ -40,6 +47,9 @@ def cli(ctx: click.Context, config: str, output: str, output_file: str) -> None:
 
     # Store output file path
     ctx.obj["output_file"] = output_file
+
+    # Store concurrency setting
+    ctx.obj["threads"] = threads
 
     # Create API client if we have an API key
     if cfg.get("api_key"):

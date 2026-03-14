@@ -471,6 +471,7 @@ def batched_match(
     entity_name: str = "records",
     show_progress: bool = True,
     preserve_input: bool = False,
+    max_workers: int = 1,
 ) -> dict:
     """
     Match items in batches, combining results.
@@ -538,20 +539,14 @@ def batched_match(
         raise last_error
 
     num_batches = math.ceil(total / batch_size)
-    all_matched: list[dict] = []
-    error_count = 0
-
+    batches = []
     for batch_num in range(num_batches):
         start = batch_num * batch_size
         end = min(start + batch_size, total)
-        batch = items[start:end]
+        batches.append(items[start:end])
 
-        if show_progress:
-            click.echo(
-                f"Batch {batch_num + 1}/{num_batches}: Matching {len(batch)} {entity_name}...",
-                err=True
-            )
-
+    def _process_batch(batch: list[dict]) -> list[dict]:
+        """Process a single batch with retry logic. Returns matched rows."""
         last_error = None
         delay = BATCH_RETRY_BASE_DELAY
 
@@ -559,66 +554,53 @@ def batched_match(
             try:
                 result = api_method(batch)
                 matched = result.get(result_key) or result.get("data", [])
-                if isinstance(matched, list):
-                    if preserve_input:
-                        for j, match_row in enumerate(matched):
-                            if j < len(batch):
-                                for k, v in batch[j].items():
-                                    match_row[f"input_{k}"] = v
-                    all_matched.extend(matched)
-
-                if show_progress:
-                    click.echo(
-                        click.style(f"  ✓ {len(matched)} matched", fg="green"),
-                        err=True
-                    )
-                last_error = None
-                break
+                if not isinstance(matched, list):
+                    matched = []
+                if preserve_input:
+                    for j, match_row in enumerate(matched):
+                        if j < len(batch):
+                            for k, v in batch[j].items():
+                                match_row[f"input_{k}"] = v
+                return matched
 
             except Exception as e:
                 api_err = _wrap_as_api_error(e)
                 last_error = api_err
                 if _is_retryable_api_error(e) and retry_attempt < BATCH_RETRY_MAX:
-                    if show_progress:
-                        click.echo(
-                            click.style(
-                                f"  ⟳ Batch retry {retry_attempt + 1}/{BATCH_RETRY_MAX} "
-                                f"after {api_err.status_code} (waiting {delay:.0f}s)...",
-                                fg="yellow",
-                            ),
-                            err=True,
-                        )
                     time.sleep(delay)
                     delay *= BATCH_RETRY_BACKOFF
                     continue
+                raise api_err
 
-                # Non-retryable or retries exhausted
-                error_count += len(batch)
-                if show_progress:
-                    click.echo(
-                        click.style(f"  ✗ Error: {api_err.message}", fg="red"),
-                        err=True
-                    )
-                    if all_matched:
-                        click.echo(
-                            f"Matched {len(all_matched)} {entity_name} before error.",
-                            err=True
-                        )
-                raise click.Abort()
+        raise last_error  # type: ignore[misc]
 
-        if last_error is not None:
-            error_count += len(batch)
+    from explorium_cli.concurrency import concurrent_map
+
+    batch_results = concurrent_map(
+        _process_batch,
+        batches,
+        max_workers=min(max_workers, num_batches),
+        label=f"{entity_name} batches",
+        show_progress=show_progress,
+    )
+
+    all_matched: list[dict] = []
+    error_count = 0
+    for batch_idx, (success, result_or_exc) in enumerate(batch_results):
+        if success:
+            all_matched.extend(result_or_exc)
             if show_progress:
                 click.echo(
-                    click.style(f"  ✗ Error: {last_error.message}", fg="red"),
+                    click.style(f"  ✓ Batch {batch_idx + 1}: {len(result_or_exc)} matched", fg="green"),
                     err=True,
                 )
-                if all_matched:
-                    click.echo(
-                        f"Matched {len(all_matched)} {entity_name} before error.",
-                        err=True,
-                    )
-            raise click.Abort()
+        else:
+            error_count += len(batches[batch_idx])
+            if show_progress:
+                click.echo(
+                    click.style(f"  ✗ Batch {batch_idx + 1}: {result_or_exc}", fg="red"),
+                    err=True,
+                )
 
     if show_progress:
         click.echo(f"Matched {len(all_matched)}/{total} {entity_name} total", err=True)
@@ -725,6 +707,7 @@ def batched_enrich(
     entity_name: str = "records",
     show_progress: bool = True,
     id_key: str = "",
+    max_workers: int = 1,
     **api_kwargs: Any
 ) -> dict:
     """
@@ -763,95 +746,82 @@ def batched_enrich(
     total_ids = len(ids)
     num_batches = math.ceil(total_ids / batch_size)
 
-    all_data: list[dict] = []
-    successful_count = 0
-    failed_count = 0
-
+    # Build batch list
+    batches: list[list[str]] = []
     for batch_num in range(num_batches):
         start_idx = batch_num * batch_size
         end_idx = min(start_idx + batch_size, total_ids)
-        batch_ids = ids[start_idx:end_idx]
-        batch_count = len(batch_ids)
+        batches.append(ids[start_idx:end_idx])
 
-        if show_progress:
-            if num_batches > 1:
-                click.echo(
-                    f"Batch {batch_num + 1}/{num_batches}: Enriching {batch_count} {entity_name}...",
-                    err=True
-                )
-            else:
-                click.echo(
-                    f"Enriching {batch_count} {entity_name}...",
-                    err=True
-                )
+    if show_progress:
+        if num_batches > 1:
+            click.echo(f"Enriching {total_ids} {entity_name} in {num_batches} batches...", err=True)
+        else:
+            click.echo(f"Enriching {total_ids} {entity_name}...", err=True)
 
+    def _process_batch(batch_ids: list[str]) -> list[dict]:
+        """Process a single enrichment batch with retry logic."""
         last_error = None
         delay = BATCH_RETRY_BASE_DELAY
 
         for retry_attempt in range(BATCH_RETRY_MAX + 1):
             try:
                 result = api_method(batch_ids, **api_kwargs)
-
-                # Extract data from response
+                data: list[dict] = []
                 if isinstance(result, dict):
                     if "data" in result:
-                        data = result["data"]
-                        if isinstance(data, list):
-                            # Inject entity ID into records that don't have it
-                            if id_key and len(data) == len(batch_ids):
-                                for j, record in enumerate(data):
+                        raw = result["data"]
+                        if isinstance(raw, list):
+                            if id_key and len(raw) == len(batch_ids):
+                                for j, record in enumerate(raw):
                                     if isinstance(record, dict) and id_key not in record:
                                         record[id_key] = batch_ids[j]
-                            all_data.extend(data)
+                            data = raw
                         else:
-                            all_data.append(data)
+                            data = [raw]
                     else:
-                        all_data.append(result)
-
-                successful_count += batch_count
-
-                if show_progress:
-                    click.echo(
-                        click.style(" done", fg="green"),
-                        err=True
-                    )
-                last_error = None
-                break
+                        data = [result]
+                return data
 
             except Exception as e:
                 api_err = _wrap_as_api_error(e)
                 last_error = api_err
                 if _is_retryable_api_error(e) and retry_attempt < BATCH_RETRY_MAX:
-                    status_info = f"after {api_err.status_code}" if api_err.status_code else "after error"
-                    if show_progress:
-                        click.echo(
-                            click.style(
-                                f"  ⟳ Batch retry {retry_attempt + 1}/{BATCH_RETRY_MAX} "
-                                f"{status_info} (waiting {delay:.0f}s)...",
-                                fg="yellow",
-                            ),
-                            err=True,
-                        )
                     time.sleep(delay)
                     delay *= BATCH_RETRY_BACKOFF
                     continue
+                raise api_err
 
-                # Non-retryable or retries exhausted — skip this batch, continue
-                failed_count += batch_count
-                if show_progress:
-                    click.echo(
-                        click.style(f" ✗ Batch failed: {api_err.message}", fg="red"),
-                        err=True
-                    )
-                last_error = None  # handled, don't re-raise
-                break
+        raise last_error  # type: ignore[misc]
 
-        if last_error is not None:
-            # Retries exhausted for retryable error — skip batch, continue
-            failed_count += batch_count
+    from explorium_cli.concurrency import concurrent_map
+
+    batch_results = concurrent_map(
+        _process_batch,
+        batches,
+        max_workers=min(max_workers, num_batches),
+        label=f"{entity_name} batches",
+        show_progress=show_progress,
+    )
+
+    all_data: list[dict] = []
+    successful_count = 0
+    failed_count = 0
+
+    for batch_idx, (success, result_or_exc) in enumerate(batch_results):
+        if success:
+            all_data.extend(result_or_exc)
+            successful_count += len(batches[batch_idx])
             if show_progress:
                 click.echo(
-                    click.style(f" ✗ Batch failed after {BATCH_RETRY_MAX} retries: {last_error.message}", fg="red"),
+                    click.style(f"  ✓ Batch {batch_idx + 1} done", fg="green"),
+                    err=True,
+                )
+        else:
+            failed_count += len(batches[batch_idx])
+            if show_progress:
+                click.echo(
+                    click.style(f"  ✗ Batch {batch_idx + 1} failed: {result_or_exc}", fg="red"),
                     err=True,
                 )
 

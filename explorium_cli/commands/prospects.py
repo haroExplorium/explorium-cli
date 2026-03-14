@@ -256,6 +256,7 @@ def match(
             id_key="prospect_id",
             entity_name="prospects",
             preserve_input=True,
+            max_workers=ctx.obj.get("threads", 5),
         )
     except APIError as e:
         output_error(e.message, e.response)
@@ -339,27 +340,40 @@ def search(
     elif business_id:
         business_ids = business_id.split(",")
     elif company_name:
-        # Resolve company names to business IDs via match
+        # Resolve company names to business IDs via match (concurrent)
+        from explorium_cli.concurrency import concurrent_map
         businesses_api = BusinessesAPI(api)
         names = [n.strip() for n in company_name.split(",")]
         click.echo(f"Resolving {len(names)} company name(s) to business IDs...", err=True)
-        for i, name in enumerate(names):
-            try:
-                result = businesses_api.match([{"name": name}])
-                matched = result.get("matched_businesses") or result.get("data", [])
-                if isinstance(matched, list):
-                    for m in matched:
-                        bid = m.get("business_id")
-                        if bid:
-                            business_ids.append(bid)
-                            click.echo(f"  ✓ '{name}' → {bid}", err=True)
-                if not any(m.get("business_id") for m in (matched if isinstance(matched, list) else [])):
+        max_workers = ctx.obj.get("threads", 5)
+
+        def _resolve_name(name: str) -> tuple[str, str | None]:
+            result = businesses_api.match([{"name": name}])
+            matched = result.get("matched_businesses") or result.get("data", [])
+            if isinstance(matched, list):
+                for m in matched:
+                    bid = m.get("business_id")
+                    if bid:
+                        return (name, bid)
+            return (name, None)
+
+        results = concurrent_map(
+            _resolve_name, names,
+            max_workers=max_workers, label="companies", show_progress=False,
+        )
+        for success, result_or_exc in results:
+            if success:
+                name, bid = result_or_exc
+                if bid:
+                    business_ids.append(bid)
+                    click.echo(f"  ✓ '{name}' → {bid}", err=True)
+                else:
                     click.echo(
                         f"  ✗ No match for '{name}'. Try: explorium businesses autocomplete --query \"{name}\"",
                         err=True,
                     )
-            except Exception as e:
-                click.echo(f"  ✗ Error matching '{name}': {e}", err=True)
+            else:
+                click.echo(f"  ✗ Error: {result_or_exc}", err=True)
         if not business_ids:
             raise click.UsageError(
                 f"No businesses found matching the given name(s). "
@@ -415,6 +429,7 @@ def search(
                 parallel_filters,
                 total=max_per_company,
                 page_size=page_size,
+                concurrency=ctx.obj.get("threads", 5),
             )
             output(result, ctx.obj["output"], file_path=ctx.obj.get("output_file"))
             if summary:
@@ -589,41 +604,43 @@ def bulk_enrich(
     elif ids:
         prospect_ids = [id.strip() for id in ids.split(",")]
     elif match_file:
-        # Read match params and resolve each to IDs
+        # Read match params and resolve each to IDs (concurrent)
+        from explorium_cli.concurrency import concurrent_map
         match_params_list = json.load(match_file)
         match_failures = []
         total_to_match = len(match_params_list)
+        max_workers = ctx.obj.get("threads", 5)
 
         click.echo(f"Matching {total_to_match} prospects...", err=True)
 
-        for i, params in enumerate(match_params_list):
-            try:
-                # Extract first_name and last_name from full_name if present
-                full_name = params.get("full_name", "")
-                first_name = None
-                last_name = None
-                if full_name:
-                    parts = full_name.split(" ", 1)
-                    first_name = parts[0]
-                    last_name = parts[1] if len(parts) > 1 else None
+        def _resolve_one(params: dict) -> str:
+            full_name = params.get("full_name", "")
+            first_name = None
+            last_name = None
+            if full_name:
+                parts = full_name.split(" ", 1)
+                first_name = parts[0]
+                last_name = parts[1] if len(parts) > 1 else None
+            return resolve_prospect_id(
+                prospects_api,
+                first_name=first_name,
+                last_name=last_name,
+                linkedin=params.get("linkedin"),
+                company_name=params.get("company_name"),
+                email=params.get("email"),
+                min_confidence=min_confidence,
+            )
 
-                resolved_id = resolve_prospect_id(
-                    prospects_api,
-                    first_name=first_name,
-                    last_name=last_name,
-                    linkedin=params.get("linkedin"),
-                    company_name=params.get("company_name"),
-                    email=params.get("email"),
-                    min_confidence=min_confidence,
-                )
-                prospect_ids.append(resolved_id)
-            except (MatchError, LowConfidenceError) as e:
-                match_failures.append((i, params, str(e)))
-            except Exception as e:
-                match_failures.append((i, params, f"Error: {e}"))
-
-            if (i + 1) % 10 == 0 or (i + 1) == total_to_match:
-                click.echo(f"  {i + 1}/{total_to_match} processed", err=True)
+        results = concurrent_map(
+            _resolve_one, match_params_list,
+            max_workers=max_workers, label="prospects",
+            show_progress=True,
+        )
+        for i, (success, result_or_exc) in enumerate(results):
+            if success:
+                prospect_ids.append(result_or_exc)
+            else:
+                match_failures.append((i, match_params_list[i], str(result_or_exc)))
 
         if match_failures:
             click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
@@ -642,13 +659,14 @@ def bulk_enrich(
     enrich_type_str = types.strip() if types else "contacts"
     methods = _resolve_enrichment_methods(enrich_type_str, prospects_api)
 
+    _mw = ctx.obj.get("threads", 5)
     if len(methods) == 1:
-        result = batched_enrich(methods[0][1], prospect_ids, entity_name="prospects", id_key="prospect_id")
+        result = batched_enrich(methods[0][1], prospect_ids, entity_name="prospects", id_key="prospect_id", max_workers=_mw)
     else:
         all_partials = []
         for label, api_method in methods:
             click.echo(f"Enriching {label}...", err=True)
-            partial = batched_enrich(api_method, prospect_ids, entity_name="prospects", id_key="prospect_id")
+            partial = batched_enrich(api_method, prospect_ids, entity_name="prospects", id_key="prospect_id", max_workers=_mw)
             all_partials.append(partial.get("data", []))
         result = {"status": "success", "data": merge_enrichment_results(all_partials, "prospect_id")}
 
@@ -740,36 +758,43 @@ def enrich_file(
 
     total_to_match = len(rows_to_match)
     if total_to_match > 0:
+        from explorium_cli.concurrency import concurrent_map
+        max_workers = ctx.obj.get("threads", 5)
         click.echo(f"Matching {total_to_match} prospects...", err=True)
 
-        for seq, (i, params) in enumerate(rows_to_match):
-            try:
-                full_name = params.get("full_name", "")
-                first_name = None
-                last_name = None
-                if full_name:
-                    parts = full_name.split(" ", 1)
-                    first_name = parts[0]
-                    last_name = parts[1] if len(parts) > 1 else None
+        def _resolve_one(item: tuple) -> tuple[int, dict, str]:
+            i, params = item
+            full_name = params.get("full_name", "")
+            first_name = None
+            last_name = None
+            if full_name:
+                parts = full_name.split(" ", 1)
+                first_name = parts[0]
+                last_name = parts[1] if len(parts) > 1 else None
+            resolved_id = resolve_prospect_id(
+                prospects_api,
+                first_name=first_name or params.get("first_name"),
+                last_name=last_name or params.get("last_name"),
+                linkedin=params.get("linkedin"),
+                company_name=params.get("company_name"),
+                email=params.get("email"),
+                min_confidence=min_confidence,
+            )
+            return (i, params, resolved_id)
 
-                resolved_id = resolve_prospect_id(
-                    prospects_api,
-                    first_name=first_name or params.get("first_name"),
-                    last_name=last_name or params.get("last_name"),
-                    linkedin=params.get("linkedin"),
-                    company_name=params.get("company_name"),
-                    email=params.get("email"),
-                    min_confidence=min_confidence,
-                )
+        results = concurrent_map(
+            _resolve_one, rows_to_match,
+            max_workers=max_workers, label="prospects",
+            show_progress=True,
+        )
+        for seq, (success, result_or_exc) in enumerate(results):
+            if success:
+                i, params, resolved_id = result_or_exc
                 prospect_ids.append(resolved_id)
                 id_to_input[resolved_id] = params
-            except (MatchError, LowConfidenceError) as e:
-                match_failures.append((i, params, str(e)))
-            except Exception as e:
-                match_failures.append((i, params, f"Error: {e}"))
-
-            if (seq + 1) % 10 == 0 or (seq + 1) == total_to_match:
-                click.echo(f"  {seq + 1}/{total_to_match} processed", err=True)
+            else:
+                i, params = rows_to_match[seq]
+                match_failures.append((i, params, str(result_or_exc)))
 
         if match_failures:
             click.echo(f"Warning: {len(match_failures)} match failures:", err=True)
@@ -800,14 +825,15 @@ def enrich_file(
 
     # Route to correct enrichment method(s)
     methods = _resolve_enrichment_methods(types.strip(), prospects_api)
+    _mw = ctx.obj.get("threads", 5)
 
     if len(methods) == 1:
-        result = batched_enrich(methods[0][1], prospect_ids, entity_name="prospects", id_key="prospect_id")
+        result = batched_enrich(methods[0][1], prospect_ids, entity_name="prospects", id_key="prospect_id", max_workers=_mw)
     else:
         all_partials = []
         for label, api_method in methods:
             click.echo(f"Enriching {label}...", err=True)
-            partial = batched_enrich(api_method, prospect_ids, entity_name="prospects", id_key="prospect_id")
+            partial = batched_enrich(api_method, prospect_ids, entity_name="prospects", id_key="prospect_id", max_workers=_mw)
             all_partials.append(partial.get("data", []))
         result = {"status": "success", "data": merge_enrichment_results(all_partials, "prospect_id")}
 
