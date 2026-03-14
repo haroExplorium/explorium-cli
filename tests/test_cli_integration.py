@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import click
 import pytest
 import yaml
 from click.testing import CliRunner
@@ -1537,3 +1538,53 @@ class TestSearchAPIErrorDisplay:
             assert result.exit_code != 0
             stderr = result.stderr or ""
             assert "Connection timeout" in stderr
+
+
+class TestThreadsOption:
+    """Tests for the global --threads / -t option."""
+
+    def test_threads_option_in_help(self, runner: CliRunner):
+        """Test that --threads and -t appear in CLI help output."""
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        assert "--threads" in result.output
+        assert "-t" in result.output
+        assert "Max concurrent API requests" in result.output
+
+    def test_threads_default_value(self, runner: CliRunner, config_with_key: Path):
+        """Test that threads defaults to 5 when not specified."""
+        captured_ctx = {}
+
+        @cli.command("_test_threads_default")
+        @click.pass_context
+        def _test_cmd(ctx):
+            captured_ctx["threads"] = ctx.obj["threads"]
+
+        try:
+            result = runner.invoke(
+                cli,
+                ["--config", str(config_with_key), "_test_threads_default"]
+            )
+            assert result.exit_code == 0
+            assert captured_ctx["threads"] == 5
+        finally:
+            cli.commands.pop("_test_threads_default", None)
+
+    def test_threads_custom_value(self, runner: CliRunner, config_with_key: Path):
+        """Test that -t sets a custom threads value in ctx.obj."""
+        captured_ctx = {}
+
+        @cli.command("_test_threads_custom")
+        @click.pass_context
+        def _test_cmd(ctx):
+            captured_ctx["threads"] = ctx.obj["threads"]
+
+        try:
+            result = runner.invoke(
+                cli,
+                ["--config", str(config_with_key), "-t", "10", "_test_threads_custom"]
+            )
+            assert result.exit_code == 0
+            assert captured_ctx["threads"] == 10
+        finally:
+            cli.commands.pop("_test_threads_custom", None)

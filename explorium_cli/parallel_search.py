@@ -1,10 +1,10 @@
 """Parallel fan-out search for multi-business prospect queries."""
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable
 
 import click
 
+from explorium_cli.concurrency import concurrent_map
 from explorium_cli.pagination import paginated_fetch
 
 
@@ -77,57 +77,74 @@ def parallel_prospect_search(
         except Exception as e:
             return {"business_id": bid, "data": [], "error": str(e)}
 
-    # ── fan-out ──────────────────────────────────────────────────────
+    # ── fan-out via concurrent_map ────────────────────────────────────
+    raw_results = concurrent_map(
+        _search_one,
+        unique_ids,
+        max_workers=concurrency,
+        label="companies",
+        show_progress=False,  # we do our own progress below
+    )
+
     all_prospects: list[dict] = []
     seen_prospect_ids: set[str] = set()
     per_company_stats: list[dict] = []
     error_count = 0
 
-    with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        future_to_bid = {
-            pool.submit(_search_one, bid): bid for bid in unique_ids
-        }
+    for i, (success, result_or_exc) in enumerate(raw_results):
+        bid = unique_ids[i]
 
-        for future in as_completed(future_to_bid):
-            bid = future_to_bid[future]
-            result = future.result()
-
-            if result["error"]:
-                error_count += 1
-                per_company_stats.append(
-                    {"business_id": bid, "count": 0, "error": result["error"]}
-                )
-                if show_progress:
-                    click.echo(
-                        click.style(f"  ✗ {bid}: {result['error']}", fg="red"),
-                        err=True,
-                    )
-                continue
-
-            # Deduplicate by prospect_id across companies
-            new_rows = []
-            for row in result["data"]:
-                pid = row.get("prospect_id", "")
-                if pid and pid in seen_prospect_ids:
-                    continue
-                if pid:
-                    seen_prospect_ids.add(pid)
-                new_rows.append(row)
-
-            returned = len(new_rows)
-            found = len(result["data"])
+        if not success:
+            # concurrent_map caught an exception (shouldn't happen since
+            # _search_one catches internally, but handle defensively)
+            error_count += 1
             per_company_stats.append(
-                {"business_id": bid, "count": returned, "error": None}
+                {"business_id": bid, "count": 0, "error": str(result_or_exc)}
             )
-            all_prospects.extend(new_rows)
-
             if show_progress:
-                msg = f"  ✓ {bid}: {found} found"
-                if total and found > total:
-                    msg += f", returning {total}"
-                elif returned < found:
-                    msg += f", {found - returned} duplicates removed"
-                click.echo(click.style(msg, fg="green"), err=True)
+                click.echo(
+                    click.style(f"  ✗ {bid}: {result_or_exc}", fg="red"),
+                    err=True,
+                )
+            continue
+
+        result = result_or_exc
+        if result["error"]:
+            error_count += 1
+            per_company_stats.append(
+                {"business_id": bid, "count": 0, "error": result["error"]}
+            )
+            if show_progress:
+                click.echo(
+                    click.style(f"  ✗ {bid}: {result['error']}", fg="red"),
+                    err=True,
+                )
+            continue
+
+        # Deduplicate by prospect_id across companies
+        new_rows = []
+        for row in result["data"]:
+            pid = row.get("prospect_id", "")
+            if pid and pid in seen_prospect_ids:
+                continue
+            if pid:
+                seen_prospect_ids.add(pid)
+            new_rows.append(row)
+
+        returned = len(new_rows)
+        found = len(result["data"])
+        per_company_stats.append(
+            {"business_id": bid, "count": returned, "error": None}
+        )
+        all_prospects.extend(new_rows)
+
+        if show_progress:
+            msg = f"  ✓ {bid}: {found} found"
+            if total and found > total:
+                msg += f", returning {total}"
+            elif returned < found:
+                msg += f", {found - returned} duplicates removed"
+            click.echo(click.style(msg, fg="green"), err=True)
 
     # ── summary ──────────────────────────────────────────────────────
     total_prospects = len(all_prospects)

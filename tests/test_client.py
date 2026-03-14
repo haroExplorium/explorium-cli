@@ -679,3 +679,51 @@ class TestExploriumAPIRetry:
             with pytest.raises(APIError) as exc_info:
                 api.get("/test")
             assert exc_info.value.status_code == 422
+
+
+class TestThreadSafeSessions:
+    """Tests for thread-safe session management."""
+
+    def test_session_per_thread(self):
+        """Spawn 5 threads, each calls _get_session() → all get different Session objects."""
+        import threading
+
+        api = ExploriumAPI(api_key="test_key")
+        sessions = []
+        lock = threading.Lock()
+
+        def collect_session():
+            s = api._get_session()
+            with lock:
+                sessions.append(s)
+
+        threads = [threading.Thread(target=collect_session) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(sessions) == 5
+        # All session objects must be distinct
+        assert len(set(id(s) for s in sessions)) == 5
+
+    def test_same_session_same_thread(self):
+        """Two calls to _get_session() on same thread → same Session instance."""
+        api = ExploriumAPI(api_key="test_key")
+        s1 = api._get_session()
+        s2 = api._get_session()
+        assert s1 is s2
+
+    def test_session_has_correct_headers(self):
+        """Per-thread session has API_KEY and Content-Type headers set correctly."""
+        api = ExploriumAPI(api_key="my_secret_key")
+        session = api._get_session()
+        assert session.headers["API_KEY"] == "my_secret_key"
+        assert session.headers["Content-Type"] == "application/json"
+
+    def test_backward_compat_session_property(self):
+        """api.session property returns a working Session (backward compat)."""
+        api = ExploriumAPI(api_key="test_key")
+        session = api.session
+        assert isinstance(session, requests.Session)
+        assert session.headers["API_KEY"] == "test_key"

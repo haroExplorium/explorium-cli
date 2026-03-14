@@ -1,6 +1,6 @@
 ---
 name: vibe-prospecting-multistep-workflow
-version: 1.4.3
+version: 1.4.4
 description: Use when needing to look up companies, find prospects, enrich contacts with emails and phone numbers, match businesses or people to Explorium IDs, get firmographics, technographics, funding data, or any B2B sales intelligence. Use when user mentions Explorium, prospect enrichment, company data, or lead research via CLI.
 ---
 
@@ -69,6 +69,7 @@ Place BEFORE the subcommand:
 ```
 -o, --output {json|table|csv}   Output format (default: json)
 --output-file PATH              Write to file (clean output, no formatting)
+-t, --threads N                 Max concurrent API requests (default: 5)
 ```
 
 ## Commands Reference
