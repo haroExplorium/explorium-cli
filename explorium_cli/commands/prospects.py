@@ -291,16 +291,26 @@ def match(
     type=click.File("r"),
     help="CSV file with 'business_id' column (other columns are ignored)"
 )
-@click.option("--job-level", help="Job levels (comma-separated). Valid: cxo, vp, director, manager, senior, entry, training, owner, partner, unpaid")
+@click.option("--job-level", help="Job levels (comma-separated). Valid: cxo, vp, director, manager, senior, entry, training, owner, partner, unpaid, president, advisor, freelancer, board member, founder, non-managerial, junior, vice president, senior manager")
 @click.option("--department", help="Departments (comma-separated). Valid: administration, c-suite, creative, customer success, data, design, education, engineering, finance, healthcare, human resources, it, legal, logistics, manufacturing, marketing, operations, partnerships, procurement, product, public service, r&d, real estate, retail, sales, security, strategy, support, trade")
-@click.option("--job-title", help="Job title keywords")
-@click.option("--country", help="Country codes (comma-separated)")
+@click.option("--job-title", help="Job title keywords (includes related titles)")
+@click.option("--country", help="Prospect country codes, comma-separated (ISO Alpha-2, e.g. US,GB)")
+@click.option("--region", help="Prospect region codes, comma-separated (ISO 3166-2, e.g. us-ca,us-tx)")
+@click.option("--city", help="Prospect city locations, comma-separated (e.g. 'New York, NY, US')")
 @click.option("--has-email", is_flag=True, help="Only prospects with email")
 @click.option("--has-phone", is_flag=True, help="Only prospects with phone")
+@click.option("--has-website", is_flag=True, default=None, help="Only prospects with website")
 @click.option("--experience-min", type=int, help="Min total experience (months)")
 @click.option("--experience-max", type=int, help="Max total experience (months)")
 @click.option("--role-tenure-min", type=int, help="Min current role tenure (months)")
 @click.option("--role-tenure-max", type=int, help="Max current role tenure (months)")
+@click.option("--company-size", "comp_size", help="Company size ranges, comma-separated (1-10,11-50,51-200,201-500,501-1000,1001-5000,5001-10000,10001+)")
+@click.option("--company-revenue", "comp_revenue", help="Company revenue ranges, comma-separated (0-500K,500K-1M,...,10B-100B)")
+@click.option("--company-country", help="Company HQ country codes, comma-separated (ISO Alpha-2)")
+@click.option("--company-region", help="Company HQ region codes, comma-separated (ISO 3166-2)")
+@click.option("--industry", help="LinkedIn industry categories, comma-separated")
+@click.option("--google-category", help="Google business categories, comma-separated")
+@click.option("--naics", help="NAICS industry codes, comma-separated (e.g. 23,5611)")
 @click.option("--max-per-company", type=int, help="Max prospects per company (searches each company in parallel)")
 @click.option("--total", type=int, help="Total records to collect (auto-paginate)")
 @click.option("--page", type=int, default=1, help="Page number (ignored if --total)")
@@ -317,12 +327,22 @@ def search(
     department: Optional[str],
     job_title: Optional[str],
     country: Optional[str],
+    region: Optional[str],
+    city: Optional[str],
     has_email: bool,
     has_phone: bool,
+    has_website: Optional[bool],
     experience_min: Optional[int],
     experience_max: Optional[int],
     role_tenure_min: Optional[int],
     role_tenure_max: Optional[int],
+    comp_size: Optional[str],
+    comp_revenue: Optional[str],
+    company_country: Optional[str],
+    company_region: Optional[str],
+    industry: Optional[str],
+    google_category: Optional[str],
+    naics: Optional[str],
     max_per_company: Optional[int],
     total: Optional[int],
     page: int,
@@ -380,6 +400,13 @@ def search(
                 f"Try 'explorium businesses autocomplete --query \"...\"' to find similar names."
             )
 
+    # Validate: only one category filter allowed
+    category_count = sum(1 for v in [industry, google_category, naics] if v)
+    if category_count > 1:
+        raise click.UsageError(
+            "Only one category filter allowed per request: --industry, --google-category, or --naics"
+        )
+
     filters = {}
     if business_ids:
         filters["business_id"] = {"type": "includes", "values": business_ids}
@@ -397,10 +424,30 @@ def search(
         filters["job_title"] = {"type": "any_match_phrase", "values": [job_title], "include_related_job_titles": True}
     if country:
         filters["country_code"] = {"type": "includes", "values": country.split(",")}
+    if region:
+        filters["region_country_code"] = {"type": "includes", "values": region.split(",")}
+    if city:
+        filters["city_region_country"] = {"type": "includes", "values": city.split(",")}
     if has_email:
         filters["has_email"] = {"type": "exists", "value": True}
     if has_phone:
         filters["has_phone_number"] = {"type": "exists", "value": True}
+    if has_website is not None:
+        filters["has_website"] = {"type": "exists", "value": True}
+    if comp_size:
+        filters["company_size"] = {"type": "includes", "values": comp_size.split(",")}
+    if comp_revenue:
+        filters["company_revenue"] = {"type": "includes", "values": comp_revenue.split(",")}
+    if company_country:
+        filters["company_country_code"] = {"type": "includes", "values": company_country.split(",")}
+    if company_region:
+        filters["company_region_country_code"] = {"type": "includes", "values": company_region.split(",")}
+    if industry:
+        filters["linkedin_category"] = {"type": "includes", "values": industry.split(",")}
+    if google_category:
+        filters["google_category"] = {"type": "includes", "values": google_category.split(",")}
+    if naics:
+        filters["naics_category"] = {"type": "includes", "values": naics.split(",")}
     if experience_min is not None or experience_max is not None:
         exp_filter: dict = {"type": "range"}
         if experience_min is not None:
