@@ -14,7 +14,7 @@ aliases:
 # Explorium CLI — Project Architecture
 
 > [!abstract] What Is This?
-> A Python CLI tool that wraps the [Explorium B2B data API](https://api.explorium.ai/v1) into a single `explorium` binary. It lets users match, search, enrich, and research **businesses** and **prospects** (people) from the command line, with output in JSON, CSV, or table format. Version ==1.4.6==.
+> A Python CLI tool that wraps the [Explorium B2B data API](https://api.explorium.ai/v1) into a single `explorium` binary. It handles **matching**, **enrichment**, **prospect search within known companies**, and **AI research**. For open-ended prospecting (discovering companies/people), use the **Vibe Prospecting MCP** connector, then export and enrich with this CLI. Version ==1.4.8==.
 
 ---
 
@@ -22,23 +22,31 @@ aliases:
 
 ```mermaid
 graph LR
-    User[User / Agent] -->|command| CLI[Click CLI]
+    User[User / Agent] -->|prospecting| VP[Vibe Prospecting MCP]
+    VP -->|export CSV| Download[curl _full_download_url]
+    Download -->|file| CLI[Explorium CLI]
+    User -->|match/enrich/research| CLI
     CLI -->|auth + config| Config[~/.explorium/config.yaml]
     CLI -->|HTTP requests| API[Explorium REST API]
     CLI -->|AI research| Anthropic[Anthropic Claude API]
     CLI -->|format| Output[JSON / CSV / Table / File]
 ```
 
-The typical workflow is a **pipeline**:
+> [!tip] Tool Division
+> - **Vibe Prospecting MCP** — searching for and discovering companies/prospects
+> - **Explorium CLI** — matching, enrichment, prospect search within known companies, AI research, events
+
+The typical workflow is:
 
 ```
-Match (name → ID) → Search (filters → list) → Enrich (ID → data) → Export (CSV)
+Prospect (Vibe Prospecting) → Export → Download (curl) → Enrich (CLI) → Export (CSV)
 ```
 
 Commands can be piped together using `-o csv` and `-f -` (stdin):
 
 ```bash
-explorium businesses match -f companies.csv -o csv 2>/dev/null \
+# After downloading from Vibe Prospecting:
+explorium businesses enrich-file -f companies.csv --types tech -o csv 2>/dev/null \
   | explorium prospects search -f - --job-level cxo -o csv 2>/dev/null \
   | explorium prospects enrich-file -f - --types contacts -o csv \
   > final_results.csv
@@ -302,6 +310,7 @@ The CLI ships with a **Claude Code skill** and **plugin** so AI agents can use i
 
 > [!tip] Patterns to Know
 
+- **Vibe Prospecting for discovery, CLI for enrichment** — Prospecting (finding companies/people) goes through Vibe Prospecting MCP; matching, enrichment, and research go through the CLI
 - **Pipeline-first** — Every command supports `-o csv` and `-f -` (stdin) for piping
 - **Match-or-ID** — All enrichment commands accept either an ID or match params (name/domain/linkedin)
 - **Batch everything** — File operations auto-batch in groups of 50

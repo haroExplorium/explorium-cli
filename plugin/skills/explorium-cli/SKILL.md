@@ -1,12 +1,73 @@
 ---
 name: vibe-prospecting-multistep-workflow
-version: 1.4.7
-description: Use when needing to look up companies, find prospects, enrich contacts with emails and phone numbers, match businesses or people to Explorium IDs, get firmographics, technographics, funding data, or any B2B sales intelligence. Use when user mentions Explorium, prospect enrichment, company data, or lead research via CLI.
+version: 1.4.8
+description: Use when needing to enrich contacts with emails and phone numbers, match businesses or people to Explorium IDs, get firmographics, technographics, funding data, or do AI company research via CLI. For prospecting tasks (finding companies, searching prospects), use Vibe Prospecting MCP first, then use this CLI to enrich the results.
 ---
 
 # Explorium CLI
 
 B2B data enrichment CLI. Match companies/prospects to IDs, enrich with firmographics, contacts, profiles, tech stack, funding, and more. Includes AI-powered company research with web search.
+
+## When to Use What
+
+### Prospecting (finding/searching) → Vibe Prospecting MCP
+
+Any task that involves **searching for**, **discovering**, or **filtering** businesses or prospects is a prospecting task. Use the **Vibe Prospecting** MCP connector for these — do NOT use `explorium businesses search` or `explorium prospects search`.
+
+Examples of prospecting tasks:
+
+- "Find 1,000 companies in the US interested in GRC platforms"
+- "Find all software developers at Microsoft"
+- "Get me VP-level marketing leaders at SaaS companies"
+- "Show me companies in fintech with 50-200 employees"
+- "Find companies that recently raised funding"
+
+### Matching, enrichment, research → Explorium CLI
+
+Once you have a list of companies or prospects (from Vibe Prospecting or any other source), use this CLI to:
+
+- **Match** names/domains/LinkedIn URLs to Explorium IDs
+- **Enrich** with firmographics, contacts, tech stack, funding, etc.
+- **Search prospects within known companies** — when you already have a list of companies (business IDs) and need to find people at those companies
+- **Research** companies with AI + web search
+- **Monitor** events (funding rounds, job changes, etc.)
+
+### When to use `prospects search` (CLI only)
+
+Use `explorium prospects search` **only** when you already have specific companies (business IDs) and need to find people within them. This is NOT for open-ended prospecting — it's for drilling into known companies.
+
+Examples:
+- You exported 200 companies from Vibe Prospecting → now find VPs of Engineering at each one
+- You have a target account list → find decision-makers with email addresses
+- You enriched a company → now find specific roles within it
+
+```bash
+# Find CXOs at companies you already have from Vibe Prospecting
+explorium prospects search -f companies.csv --job-level cxo,vp --has-email --total 50 -o csv --output-file prospects.csv
+
+# Find engineers at a specific company
+explorium prospects search --business-id "abc123" --department engineering --total 20 -o csv --output-file devs.csv
+
+# Balanced: up to 5 prospects per company across a list
+explorium prospects search -f companies.csv --job-level director --max-per-company 5 -o csv --output-file prospects.csv
+```
+
+### Workflow: Vibe Prospecting → Export → Download → CLI Enrich
+
+1. **Prospect** — run your search via Vibe Prospecting MCP tools (`fetch-businesses`, `fetch-prospects`, etc.)
+2. **Export** — call the Vibe Prospecting `export-to-csv` tool with the `session_id` and `table_name`
+3. **Download** — the export response contains a `_full_download_url` property. Once the user has decided to export, the download is automatic — no need to ask permission for this step:
+   ```bash
+   curl -o prospects.csv "<value of _full_download_url from export response>"
+   ```
+4. **Enrich** — use the CLI to add firmographics, contacts, tech stack, etc.:
+   ```bash
+   explorium prospects enrich-file -f prospects.csv --types all -o csv --output-file enriched.csv
+   # Or for businesses:
+   explorium businesses enrich-file -f companies.csv --types firmographics -o csv --output-file enriched.csv
+   ```
+
+> **Important:** Always ask the user before exporting (it costs credits). But once they confirm the export, download the file automatically via `_full_download_url` — no additional prompt needed.
 
 ## Setup (run once per session if needed)
 
@@ -91,7 +152,6 @@ See `commands-reference.md` in this directory for the full command reference wit
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
 | `businesses match` | Match companies to IDs | `--name`, `--domain`, `--linkedin`, `-f FILE`, `--summary`, `--ids-only` |
-| `businesses search` | Search/filter businesses | See [Business Search Filters](#business-search-filters) below |
 | `businesses enrich` | Firmographics (single) | `--id`, `--name`, `--domain`, `--min-confidence` |
 | `businesses enrich-tech` | Technology stack | Same ID resolution options |
 | `businesses enrich-financial` | Financial indicators | Same ID resolution options |
@@ -121,7 +181,7 @@ See `commands-reference.md` in this directory for the full command reference wit
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
 | `prospects match` | Match people to IDs | `--first-name`, `--last-name`, `--company-name`, `--email`, `--linkedin`, `-f FILE`, `--summary`, `--ids-only` |
-| `prospects search` | Search prospects | See [Prospect Search Filters](#prospect-search-filters) below |
+| `prospects search` | Find people at known companies (requires business IDs) | `-b ID`, `-f FILE`, `--job-level`, `--department`, `--job-title`, `--has-email`, `--max-per-company`, `--total` |
 | `prospects enrich contacts` | Emails & phones (single) | `--id`, `--first-name`, `--last-name`, `--company-name`, `--email`, `--linkedin` |
 | `prospects enrich social` | LinkedIn posts | Same ID resolution options |
 | `prospects enrich profile` | Professional profile | Same ID resolution options |
@@ -132,146 +192,6 @@ See `commands-reference.md` in this directory for the full command reference wit
 | `prospects events list` | List event types | `--ids`, `--events` |
 | `prospects events enroll` | Subscribe to events | `--ids`, `--events`, `--key` |
 | `prospects events enrollments` | List subscriptions | |
-
-### Business Search Filters
-
-`explorium businesses search [OPTIONS]`
-
-#### Location Filters
-
-| Option | Description | Example Values |
-|--------|-------------|----------------|
-| `--country` | Country codes (ISO Alpha-2), comma-separated | `US`, `US,GB,DE` |
-| `--region` | Region codes (ISO 3166-2), comma-separated | `us-ca`, `us-ca,us-tx` |
-| `--city` | City locations, comma-separated | `"San Francisco, CA, US"` |
-| `--hq-only` | Match HQ location only (exclude operating locations) | Flag |
-
-#### Company Size & Revenue
-
-| Option | Description | Valid Values |
-|--------|-------------|--------------|
-| `--size` | Employee count ranges, comma-separated | `1-10`, `11-50`, `51-200`, `201-500`, `501-1000`, `1001-5000`, `5001-10000`, `10001+` |
-| `--revenue` | Revenue ranges, comma-separated | `0-500K`, `500K-1M`, `1M-5M`, `5M-10M`, `10M-25M`, `25M-75M`, `75M-200M`, `200M-500M`, `500M-1B`, `1B-10B`, `10B-100B`, `100B-1T`, `1T-10T`, `10T+` |
-| `--company-age` | Company age in years, comma-separated | `0-3`, `3-6`, `6-10`, `10-20`, `20+` |
-| `--locations` | Number of locations, comma-separated | `0-1`, `2-5`, `6-20`, `21-50`, `51-100`, `101-1000`, `1001+` |
-
-#### Industry & Category (mutually exclusive — pick one)
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--industry` | LinkedIn industry categories | `"Software Development"`, `"Financial Services"` |
-| `--google-category` | Google business categories | `"Software Company"` |
-| `--naics` | NAICS industry codes | `23`, `5611`, `541512` |
-
-Use `explorium businesses autocomplete --query "..." --field industry` to discover valid values.
-
-#### Technology
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--tech` | Specific technologies, comma-separated | `JavaScript,AWS,Salesforce` |
-| `--tech-category` | Technology categories, comma-separated | `CRM`, `Marketing`, `Cloud Services` |
-
-Use `explorium businesses autocomplete --query "..." --field tech` to discover valid values.
-
-#### Signals & Intent
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--keywords` | Website keywords (phrase match), comma-separated | `"machine learning"`, `"cloud migration"` |
-| `--intent` | Bombora intent topics, comma-separated | `"Security:Cloud Security"` |
-| `--intent-level` | Intent signal strength | `high_intent` |
-| `--events` | Business event types, comma-separated | `new_product`, `ipo_announcement` |
-| `--events-days` | Event recency window (30-90 days, default: 45) | `30`, `90` |
-
-#### Boolean Filters
-
-| Option | Description |
-|--------|-------------|
-| `--has-website` | Only companies with a website |
-| `--is-public` | Only publicly traded companies |
-
-#### Pagination
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--total N` | Total records to collect (auto-paginate) | — |
-| `--page N` | Page number (ignored if --total) | 1 |
-| `--page-size N` | Results per page | 100 |
-
-### Prospect Search Filters
-
-`explorium prospects search [OPTIONS]`
-
-#### Company Targeting (pick one)
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--business-id`, `-b` | Business IDs, comma-separated | `abc123,def456` |
-| `--company-name` | Company names (auto-resolves to IDs) | `"Salesforce,HubSpot"` |
-| `-f FILE` | CSV with `business_id` column | `companies.csv` |
-
-#### Person Filters
-
-| Option | Description | Example Values |
-|--------|-------------|----------------|
-| `--job-level` | Job levels, comma-separated | `cxo`, `vp`, `director`, `manager`, `senior`, `entry`, `owner`, `partner`, `founder`, `president`, `board member` |
-| `--department` | Departments, comma-separated | `engineering`, `sales`, `marketing`, `finance`, `c-suite`, `product`, `operations`, `human resources`, `it`, `legal` |
-| `--job-title` | Job title keywords (includes related titles) | `"CTO"`, `"VP of Engineering"` |
-
-Use `explorium prospects autocomplete --query "..." --field job-title` or `--field department` to discover valid values.
-
-#### Person Location
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--country` | Prospect country codes (ISO Alpha-2) | `US`, `US,GB` |
-| `--region` | Prospect region codes (ISO 3166-2) | `us-ca,us-ny` |
-| `--city` | Prospect city locations | `"New York, NY, US"` |
-
-#### Experience & Tenure
-
-| Option | Description | Unit |
-|--------|-------------|------|
-| `--experience-min` | Minimum total experience | months |
-| `--experience-max` | Maximum total experience | months |
-| `--role-tenure-min` | Minimum current role tenure | months |
-| `--role-tenure-max` | Maximum current role tenure | months |
-
-#### Company Filters (filter by the prospect's employer)
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--company-size` | Company size ranges | `51-200,201-500` |
-| `--company-revenue` | Company revenue ranges | `10M-25M,25M-75M` |
-| `--company-country` | Company HQ country codes | `US,GB` |
-| `--company-region` | Company HQ region codes | `us-ca` |
-
-#### Industry & Category (mutually exclusive — pick one)
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--industry` | LinkedIn industry categories | `"Software Development"` |
-| `--google-category` | Google business categories | `"Software Company"` |
-| `--naics` | NAICS industry codes | `23,5611` |
-
-#### Boolean Filters
-
-| Option | Description |
-|--------|-------------|
-| `--has-email` | Only prospects with email |
-| `--has-phone` | Only prospects with phone |
-| `--has-website` | Only prospects with website |
-
-#### Pagination & Output
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--max-per-company N` | Max prospects per company (parallel search) | — |
-| `--total N` | Total records to collect (auto-paginate) | — |
-| `--page N` | Page number (ignored if --total) | 1 |
-| `--page-size N` | Results per page | 100 |
-| `--summary` | Print aggregate statistics to stderr | — |
 
 ### Research
 
@@ -336,10 +256,8 @@ LinkedIn URLs without `https://` are auto-fixed.
 All `-f`/`--file` options accept `-` to read from stdin, enabling command pipelines:
 
 ```bash
-# Pipe match output into search, then into enrich
-# bulk-enrich -f preserves input columns with input_ prefix
+# Pipe match output into enrich
 explorium businesses match -f companies.csv -o csv 2>/dev/null \
-  | explorium prospects search -f - --job-level cxo --total 10 -o csv 2>/dev/null \
   | explorium prospects bulk-enrich -f - --types contacts -o csv \
   > final_results.csv
 ```
@@ -347,6 +265,68 @@ explorium businesses match -f companies.csv -o csv 2>/dev/null \
 Format (CSV vs JSON) is auto-detected from content. `--summary` output goes to stderr and won't corrupt piped data.
 
 ## Workflows
+
+### Vibe Prospecting → Export → Download → Enrich (primary workflow)
+
+```bash
+# 1. Use Vibe Prospecting MCP to find your targets
+# 2. Export via export-to-csv tool
+# 3. Automatically download using _full_download_url from the export response:
+curl -o prospects.csv "<_full_download_url>"
+
+# 4. Enrich with the CLI:
+explorium prospects enrich-file -f prospects.csv --types all -o csv --summary --output-file enriched.csv
+```
+
+Steps 3-4 happen automatically after the user confirms the export — no additional prompts needed.
+
+### End-to-End Example: Companies → Enrich → Filter → Find Prospects
+
+**Goal:** Find 200 companies that launched a product recently, filter to HubSpot users, then find their marketing leadership.
+
+**Step 1 — Prospecting (Vibe Prospecting MCP):**
+Use Vibe Prospecting to search for companies with recent product launches. Show sample data to the user. Ask if they want to export.
+
+**Step 2 — Export & Download (Vibe Prospecting MCP → automatic curl):**
+Once the user confirms the export, call `export-to-csv`. Then automatically download the file using `_full_download_url` from the response — no prompt needed:
+
+```bash
+curl -o companies.csv "<_full_download_url>"
+```
+
+**Step 3 — Enrich with technographics (CLI):**
+
+```bash
+explorium businesses enrich-file -f companies.csv --types tech -o csv --summary --output-file enriched_companies.csv
+```
+
+**Step 4 — Filter to HubSpot users (local processing):**
+
+```bash
+head -1 enriched_companies.csv > hubspot_companies.csv
+grep -i "hubspot" enriched_companies.csv >> hubspot_companies.csv
+```
+
+**Step 5 — Find marketing leadership at filtered companies (CLI):**
+
+```bash
+explorium prospects search -f hubspot_companies.csv --department marketing --job-level cxo,vp,director --has-email --max-per-company 5 -o csv --output-file marketing_leaders.csv --summary
+```
+
+**Step 6 — Enrich prospects with contact info (CLI):**
+
+```bash
+explorium prospects enrich-file -f marketing_leaders.csv --types contacts -o csv --summary --output-file final_contacts.csv
+```
+
+| Step | Tool | Action |
+|------|------|--------|
+| 1 | Vibe Prospecting MCP | Search for companies with recent product launches |
+| 2 | Vibe Prospecting MCP → `curl` | Export, then auto-download via `_full_download_url` |
+| 3 | Explorium CLI | Enrich with technographics |
+| 4 | Local (`grep`) | Filter to HubSpot users |
+| 5 | Explorium CLI | Find marketing leaders at filtered companies |
+| 6 | Explorium CLI | Enrich prospects with emails/phones |
 
 ### Single company lookup
 
@@ -360,27 +340,7 @@ explorium businesses enrich --name "Acme Corp" -o table
 explorium prospects enrich contacts --first-name John --last-name Doe --company-name "Acme Corp"
 ```
 
-### Discover valid filter values
-
-```bash
-# Find valid industry categories for --industry
-explorium businesses autocomplete --query "software" --field industry
-
-# Find valid technologies for --tech
-explorium businesses autocomplete --query "React" --field tech
-
-# Find valid job titles
-explorium prospects autocomplete --query "founder" --field job-title
-```
-
-### Search prospects by company name
-
-```bash
-# No need to resolve business_id manually -- --company-name does it internally
-explorium prospects search --company-name "Salesforce" --job-level cxo --country US --total 50 --summary -o csv --output-file results.csv
-```
-
-### Bulk: CSV in, enriched CSV out (recommended for files)
+### Bulk: CSV in, enriched CSV out
 
 ```bash
 # One command: match + enrich, flat CSV output
@@ -397,91 +357,16 @@ explorium prospects match -f leads.csv -o csv --output-file matched.csv --summar
 explorium prospects bulk-enrich -f matched.csv --types all -o csv --output-file enriched.csv
 ```
 
-### Search and collect
-
-```bash
-# Get 200 SaaS companies in the US
-explorium businesses search --country US --tech "Salesforce" --total 200 -o csv --output-file results.csv
-```
-
-### Balanced search across companies
-
-```bash
-# Get up to 5 prospects per company (searches each company in parallel)
-explorium prospects search -f biz_ids.csv --job-level cxo,vp --max-per-company 5 -o csv --output-file prospects.csv
-```
-
-### Full pipeline: companies -> filter -> prospects -> contacts
-
-```bash
-# 1. Find target companies
-explorium businesses search --country US --tech "Salesforce" --total 100 -o csv --output-file companies.csv
-# 2. Match to get business IDs
-explorium businesses match -f companies.csv --ids-only --output-file biz_ids.csv
-# 3. Search prospects across those companies
-explorium prospects search -f biz_ids.csv --job-level cxo,vp --has-email --total 200 -o csv --output-file prospects.csv
-# 4. Enrich with contacts
-explorium prospects bulk-enrich -f prospects.csv --types all -o csv --output-file enriched.csv
-```
-
 ### AI Research: answer questions about companies
 
 ```bash
 # Research a list of companies with a custom question
 explorium research run -f companies.csv --prompt "Does this company use Kubernetes?" -o csv --output-file researched.csv
 
-# With more control
-explorium research run -f companies.csv \
-  --prompt "What is this company's main product?" \
-  --threads 20 \
-  --verbose \
-  -o csv --output-file researched.csv
-
 # Find pain points and challenges for targeted outreach
 explorium research run -f companies.csv \
   --prompt "What are this company's top business challenges and pain points? Look for recent layoffs, declining revenue, leadership changes, competitive pressure, or technology gaps." \
   -o csv --output-file pain_points.csv
-```
-
-### Event-Driven Marketing Leader Discovery
-
-**Goal**: Find marketing leadership at companies actively posting about events
-
-```bash
-# Step 1: Match and enrich prospects (gets business_id)
-explorium prospects enrich-file \
-  -f prospects.csv \
-  --types firmographics \
-  --summary \
-  -o csv --output-file matched_prospects.csv
-
-# Step 2: Enrich companies with social posts
-explorium businesses enrich-file \
-  -f matched_prospects.csv \
-  --types all \
-  --summary \
-  -o json --output-file companies_with_social.json
-
-# Step 3: Filter for event posts
-jq -r 'select(.social_posts != null) | select(.social_posts | tostring | test("(?i)(conference|webinar|event|summit)")) | .business_id' companies_with_social.json > event_companies.txt
-echo "business_id" > event_companies.csv
-cat event_companies.txt >> event_companies.csv
-
-# Step 4: Find marketing leaders
-explorium prospects search \
-  -f event_companies.csv \
-  --department "Marketing" \
-  --job-level "cxo,vp" \
-  --has-email \
-  --max-per-company 3 \
-  -o csv --output-file marketing_leaders.csv --summary
-
-# Step 5: Enrich with contacts
-explorium prospects enrich-file \
-  -f marketing_leaders.csv \
-  --types contacts \
-  --summary \
-  -o csv --output-file final_marketing_leaders.csv
 ```
 
 ## Important Notes
@@ -491,8 +376,6 @@ explorium prospects enrich-file \
 - `enrich-file` is the fastest path for CSV workflows -- combines match + enrich in one command
 - CSV output flattens nested JSON automatically for spreadsheet use
 - `--summary` shows matched/not-found/error counts on stderr
-- `--company-name` on `prospects search`: resolves company names to business IDs automatically (accepts comma-separated names)
-- `prospects search --summary`: prints aggregate stats (countries, job levels, companies, email/phone counts) to stderr
 - `--field` on autocomplete: discover valid values for `--industry`, `--tech`, `--job-title`, `--department`
 - `-f -` reads from stdin on all file-accepting commands (auto-detects CSV vs JSON)
 - All batch operations retry on transient errors (429, 500-504, ConnectionError, Timeout) with exponential backoff. Failed batches are skipped and partial results are returned.
@@ -500,6 +383,7 @@ explorium prospects enrich-file \
 
 ## Constraints
 
-- Use ONLY Explorium CLI for all data operations
-- DO NOT use Vibe Prospecting MCP for operations the CLI can handle
+- **Prospecting (searching/discovering/filtering)** → Use Vibe Prospecting MCP, NOT `explorium businesses search` or `explorium prospects search`
+- **Matching, enrichment, research** → Use Explorium CLI
+- Ask the user before exporting (costs credits). Once they confirm, automatically `curl` the `_full_download_url` to download the CSV — no prompt needed for the download itself
 - Use `jq`, `cut`, `sort`, `echo` for post-processing (system tools, allowed)
