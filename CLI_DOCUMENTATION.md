@@ -4,6 +4,34 @@ A command-line interface for interacting with the Explorium API.
 
 ## Installation
 
+### One-liner (recommended)
+
+Pre-built binaries are available from [GitHub Releases](https://github.com/haroExplorium/explorium-cli/releases). The installer auto-detects your platform:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/haroExplorium/explorium-cli/main/install.sh | bash
+```
+
+This installs to `~/.local/bin/explorium` and adds it to your PATH.
+
+**Supported platforms:**
+
+| Platform | Architecture | Binary |
+|----------|-------------|--------|
+| macOS | arm64 (Apple Silicon) | `explorium-darwin-arm64` |
+| Linux | amd64 / x86_64 | `explorium-linux-amd64` |
+| Linux | arm64 / aarch64 | `explorium-linux-arm64` |
+
+### From source
+
+```bash
+git clone https://github.com/haroExplorium/explorium-cli.git
+cd explorium-cli
+pip install -e .
+```
+
+### Manual binary install
+
 ```bash
 # Copy binary to system path
 sudo cp dist/explorium /usr/local/bin/

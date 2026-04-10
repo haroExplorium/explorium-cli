@@ -25,7 +25,15 @@ git clone https://github.com/haroExplorium/explorium-cli.git
 cd explorium-cli && ./setup-cowork.sh
 ```
 
-### Standalone binary install
+### Standalone binary install (recommended)
+
+Pre-built binaries are published to [GitHub Releases](https://github.com/haroExplorium/explorium-cli/releases). The installer auto-detects your platform and downloads the correct binary:
+
+| Platform | Architecture | Binary |
+|----------|-------------|--------|
+| macOS | arm64 (Apple Silicon) | `explorium-darwin-arm64` |
+| Linux | amd64 / x86_64 | `explorium-linux-amd64` |
+| Linux | arm64 / aarch64 | `explorium-linux-arm64` |
 
 ```bash
 which explorium 2>/dev/null || ls ~/.local/bin/explorium 2>/dev/null
@@ -37,6 +45,8 @@ If not found, install with the one-liner:
 curl -fsSL https://raw.githubusercontent.com/haroExplorium/explorium-cli/main/install.sh | bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+This downloads the binary to `~/.local/bin/explorium` and the Claude Code skill to `~/.claude/skills/explorium-cli/SKILL.md`.
 
 ### Configure Explorium API key
 

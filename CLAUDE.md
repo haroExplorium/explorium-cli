@@ -53,6 +53,12 @@ Also update the skill version in `skills/SKILL.md` frontmatter:
 version: X.Y.Z
 ```
 
+Then create a versioned skill file:
+
+```bash
+zip -j vibe-prospecting-multistep-workflow-X.Y.Z.skill skills/SKILL.md
+```
+
 ## Testing
 
 Run tests before committing any code change:
@@ -107,6 +113,7 @@ Before `git push`, confirm all of these:
 - [ ] `CLI_DOCUMENTATION.md` updated if user-facing behavior changed
 - [ ] `Project-Architecture.md` updated if modules, deps, or structure changed
 - [ ] Version bumped in `__init__.py`, `pyproject.toml`, and `skills/SKILL.md` (if releasing)
+- [ ] Versioned skill file created (`vibe-prospecting-multistep-workflow-X.Y.Z.skill`)
 - [ ] Binary built (`./build.sh` or `./build-linux.sh`)
 - [ ] Binary tested (`dist/explorium --version`)
 

@@ -4,12 +4,20 @@ A comprehensive command-line interface for interacting with all Explorium API en
 
 ## Installation
 
-```bash
-# From the project directory
-pip install -e .
+### One-liner (recommended)
 
-# Or install dependencies directly
-pip install -r requirements.txt
+Pre-built binaries are available from [GitHub Releases](https://github.com/haroExplorium/explorium-cli/releases):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/haroExplorium/explorium-cli/main/install.sh | bash
+```
+
+Supported platforms: macOS arm64, Linux amd64, Linux arm64.
+
+### From source
+
+```bash
+pip install -e .
 ```
 
 ## Configuration
