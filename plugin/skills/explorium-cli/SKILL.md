@@ -1,5 +1,6 @@
 ---
-name: explorium-cli
+name: vibe-prospecting-multistep-workflow
+version: 1.4.7
 description: Use when needing to look up companies, find prospects, enrich contacts with emails and phone numbers, match businesses or people to Explorium IDs, get firmographics, technographics, funding data, or any B2B sales intelligence. Use when user mentions Explorium, prospect enrichment, company data, or lead research via CLI.
 ---
 
@@ -37,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/haroExplorium/explorium-cli/main/in
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### Configure API key
+### Configure Explorium API key
 
 ```bash
 explorium config show
@@ -49,6 +50,18 @@ If output shows `api_key: NOT SET` (exit code 1), ask the user for their Explori
 explorium config init -k <API_KEY>
 ```
 
+The setup script auto-discovers the key from: `~/.explorium/api_key` → `$PERSISTENT_DIR/*/.explorium/api_key` → `EXPLORIUM_API_KEY` env var.
+
+### Configure Anthropic API key (for research command)
+
+The `research run` command requires an Anthropic API key. Set it via:
+
+```bash
+export ANTHROPIC_API_KEY=<YOUR_KEY>
+```
+
+The setup script auto-discovers the key from: `~/.anthropic/api_key` → `$PERSISTENT_DIR/*/.anthropic/api_key` → `ANTHROPIC_API_KEY` env var.
+
 ## Global Options
 
 Place BEFORE the subcommand:
@@ -56,6 +69,7 @@ Place BEFORE the subcommand:
 ```
 -o, --output {json|table|csv}   Output format (default: json)
 --output-file PATH              Write to file (clean output, no formatting)
+-t, --threads N                 Max concurrent API requests (default: 5)
 ```
 
 ## Commands Reference
@@ -67,7 +81,7 @@ See `commands-reference.md` in this directory for the full command reference wit
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
 | `businesses match` | Match companies to IDs | `--name`, `--domain`, `--linkedin`, `-f FILE`, `--summary`, `--ids-only` |
-| `businesses search` | Search/filter businesses | `--country`, `--size`, `--revenue`, `--industry`, `--tech`, `--total N` |
+| `businesses search` | Search/filter businesses | See [Business Search Filters](#business-search-filters) below |
 | `businesses enrich` | Firmographics (single) | `--id`, `--name`, `--domain`, `--min-confidence` |
 | `businesses enrich-tech` | Technology stack | Same ID resolution options |
 | `businesses enrich-financial` | Financial indicators | Same ID resolution options |
@@ -97,7 +111,7 @@ See `commands-reference.md` in this directory for the full command reference wit
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
 | `prospects match` | Match people to IDs | `--first-name`, `--last-name`, `--company-name`, `--email`, `--linkedin`, `-f FILE`, `--summary`, `--ids-only` |
-| `prospects search` | Search prospects | `--business-id`, `--company-name`, `-f FILE`, `--job-level`, `--department`, `--job-title`, `--country`, `--has-email`, `--has-phone`, `--total N`, `--max-per-company N`, `--summary` |
+| `prospects search` | Search prospects | See [Prospect Search Filters](#prospect-search-filters) below |
 | `prospects enrich contacts` | Emails & phones (single) | `--id`, `--first-name`, `--last-name`, `--company-name`, `--email`, `--linkedin` |
 | `prospects enrich social` | LinkedIn posts | Same ID resolution options |
 | `prospects enrich profile` | Professional profile | Same ID resolution options |
@@ -109,13 +123,153 @@ See `commands-reference.md` in this directory for the full command reference wit
 | `prospects events enroll` | Subscribe to events | `--ids`, `--events`, `--key` |
 | `prospects events enrollments` | List subscriptions | |
 
+### Business Search Filters
+
+`explorium businesses search [OPTIONS]`
+
+#### Location Filters
+
+| Option | Description | Example Values |
+|--------|-------------|----------------|
+| `--country` | Country codes (ISO Alpha-2), comma-separated | `US`, `US,GB,DE` |
+| `--region` | Region codes (ISO 3166-2), comma-separated | `us-ca`, `us-ca,us-tx` |
+| `--city` | City locations, comma-separated | `"San Francisco, CA, US"` |
+| `--hq-only` | Match HQ location only (exclude operating locations) | Flag |
+
+#### Company Size & Revenue
+
+| Option | Description | Valid Values |
+|--------|-------------|--------------|
+| `--size` | Employee count ranges, comma-separated | `1-10`, `11-50`, `51-200`, `201-500`, `501-1000`, `1001-5000`, `5001-10000`, `10001+` |
+| `--revenue` | Revenue ranges, comma-separated | `0-500K`, `500K-1M`, `1M-5M`, `5M-10M`, `10M-25M`, `25M-75M`, `75M-200M`, `200M-500M`, `500M-1B`, `1B-10B`, `10B-100B`, `100B-1T`, `1T-10T`, `10T+` |
+| `--company-age` | Company age in years, comma-separated | `0-3`, `3-6`, `6-10`, `10-20`, `20+` |
+| `--locations` | Number of locations, comma-separated | `0-1`, `2-5`, `6-20`, `21-50`, `51-100`, `101-1000`, `1001+` |
+
+#### Industry & Category (mutually exclusive — pick one)
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--industry` | LinkedIn industry categories | `"Software Development"`, `"Financial Services"` |
+| `--google-category` | Google business categories | `"Software Company"` |
+| `--naics` | NAICS industry codes | `23`, `5611`, `541512` |
+
+Use `explorium businesses autocomplete --query "..." --field industry` to discover valid values.
+
+#### Technology
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--tech` | Specific technologies, comma-separated | `JavaScript,AWS,Salesforce` |
+| `--tech-category` | Technology categories, comma-separated | `CRM`, `Marketing`, `Cloud Services` |
+
+Use `explorium businesses autocomplete --query "..." --field tech` to discover valid values.
+
+#### Signals & Intent
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--keywords` | Website keywords (phrase match), comma-separated | `"machine learning"`, `"cloud migration"` |
+| `--intent` | Bombora intent topics, comma-separated | `"Security:Cloud Security"` |
+| `--intent-level` | Intent signal strength | `high_intent` |
+| `--events` | Business event types, comma-separated | `new_product`, `ipo_announcement` |
+| `--events-days` | Event recency window (30-90 days, default: 45) | `30`, `90` |
+
+#### Boolean Filters
+
+| Option | Description |
+|--------|-------------|
+| `--has-website` | Only companies with a website |
+| `--is-public` | Only publicly traded companies |
+
+#### Pagination
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--total N` | Total records to collect (auto-paginate) | — |
+| `--page N` | Page number (ignored if --total) | 1 |
+| `--page-size N` | Results per page | 100 |
+
+### Prospect Search Filters
+
+`explorium prospects search [OPTIONS]`
+
+#### Company Targeting (pick one)
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--business-id`, `-b` | Business IDs, comma-separated | `abc123,def456` |
+| `--company-name` | Company names (auto-resolves to IDs) | `"Salesforce,HubSpot"` |
+| `-f FILE` | CSV with `business_id` column | `companies.csv` |
+
+#### Person Filters
+
+| Option | Description | Example Values |
+|--------|-------------|----------------|
+| `--job-level` | Job levels, comma-separated | `cxo`, `vp`, `director`, `manager`, `senior`, `entry`, `owner`, `partner`, `founder`, `president`, `board member` |
+| `--department` | Departments, comma-separated | `engineering`, `sales`, `marketing`, `finance`, `c-suite`, `product`, `operations`, `human resources`, `it`, `legal` |
+| `--job-title` | Job title keywords (includes related titles) | `"CTO"`, `"VP of Engineering"` |
+
+Use `explorium prospects autocomplete --query "..." --field job-title` or `--field department` to discover valid values.
+
+#### Person Location
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--country` | Prospect country codes (ISO Alpha-2) | `US`, `US,GB` |
+| `--region` | Prospect region codes (ISO 3166-2) | `us-ca,us-ny` |
+| `--city` | Prospect city locations | `"New York, NY, US"` |
+
+#### Experience & Tenure
+
+| Option | Description | Unit |
+|--------|-------------|------|
+| `--experience-min` | Minimum total experience | months |
+| `--experience-max` | Maximum total experience | months |
+| `--role-tenure-min` | Minimum current role tenure | months |
+| `--role-tenure-max` | Maximum current role tenure | months |
+
+#### Company Filters (filter by the prospect's employer)
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--company-size` | Company size ranges | `51-200,201-500` |
+| `--company-revenue` | Company revenue ranges | `10M-25M,25M-75M` |
+| `--company-country` | Company HQ country codes | `US,GB` |
+| `--company-region` | Company HQ region codes | `us-ca` |
+
+#### Industry & Category (mutually exclusive — pick one)
+
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--industry` | LinkedIn industry categories | `"Software Development"` |
+| `--google-category` | Google business categories | `"Software Company"` |
+| `--naics` | NAICS industry codes | `23,5611` |
+
+#### Boolean Filters
+
+| Option | Description |
+|--------|-------------|
+| `--has-email` | Only prospects with email |
+| `--has-phone` | Only prospects with phone |
+| `--has-website` | Only prospects with website |
+
+#### Pagination & Output
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--max-per-company N` | Max prospects per company (parallel search) | — |
+| `--total N` | Total records to collect (auto-paginate) | — |
+| `--page N` | Page number (ignored if --total) | 1 |
+| `--page-size N` | Results per page | 100 |
+| `--summary` | Print aggregate statistics to stderr | — |
+
 ### Research
 
 AI-powered company research using Claude + web search. Requires `ANTHROPIC_API_KEY` environment variable.
 
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
-| `research run` | Research companies with AI + web search | `-f FILE`, `--prompt`, `--threads`, `--max-searches`, `--no-polish`, `--verbose` |
+| `research run` | Research companies with AI + web search | `-f FILE`, `--prompt`, `--threads`, `--no-polish`, `--verbose`. Supports global `-o` and `--output-file` |
 
 #### `research run`
 
@@ -125,10 +279,11 @@ Reads a CSV/JSON file, asks a question about each company using AI with web sear
 -f, --file FILENAME        Input CSV or JSON file with company records  [required]
 -p, --prompt TEXT          Research question to answer for each company  [required]
 -t, --threads INTEGER      Max concurrent research tasks (default: 10)
---max-searches INTEGER     Max web searches per company (default: 5)
 --no-polish                Skip prompt polishing with Sonnet
 -v, --verbose              Show detailed progress and polished prompt
 ```
+
+Supports the global `-o {json|table|csv}` and `--output-file PATH` options for output formatting, just like all other commands.
 
 **How it works:**
 1. Reads input file and auto-detects company name and domain columns
@@ -269,9 +424,13 @@ explorium research run -f companies.csv --prompt "Does this company use Kubernet
 explorium research run -f companies.csv \
   --prompt "What is this company's main product?" \
   --threads 20 \
-  --max-searches 3 \
   --verbose \
   -o csv --output-file researched.csv
+
+# Find pain points and challenges for targeted outreach
+explorium research run -f companies.csv \
+  --prompt "What are this company's top business challenges and pain points? Look for recent layoffs, declining revenue, leadership changes, competitive pressure, or technology gaps." \
+  -o csv --output-file pain_points.csv
 ```
 
 ### Event-Driven Marketing Leader Discovery
