@@ -67,7 +67,7 @@ def run(ctx, input_file, prompt, threads, no_polish, verbose):
             records=records,
             prompt=prompt,
             threads=threads,
-            max_searches=2,
+            max_searches=1,
             no_polish=no_polish,
             verbose=verbose,
         )

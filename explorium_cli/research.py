@@ -68,7 +68,7 @@ async def run_research(
     records: list[dict[str, str]],
     prompt: str,
     threads: int = 10,
-    max_searches: int = 5,
+    max_searches: int = 1,
     no_polish: bool = False,
     verbose: bool = False,
 ) -> list[dict[str, str]]:

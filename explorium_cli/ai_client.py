@@ -117,7 +117,7 @@ async def research_company(
     prompt: str,
     company_name: str,
     domain: str = "",
-    max_searches: int = 5,
+    max_searches: int = 1,
 ) -> dict[str, str]:
     """Use Haiku + web_search to research a single company.
 
