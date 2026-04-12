@@ -138,9 +138,10 @@ class TestResearchFailFast:
             return {"answer": "ok", "reasoning": "found", "confidence": "high"}
 
         with patch("explorium_cli.research.validate_anthropic_key", new_callable=AsyncMock):
+          with patch("explorium_cli.research.polish_prompt", new_callable=AsyncMock, return_value="polished"):
             with patch("explorium_cli.research.research_company", side_effect=mock_research):
                 results = await run_research(
-                    records, "test prompt", threads=1, no_polish=True
+                    records, "test prompt", threads=1
                 )
 
         # First should be error, rest should be skipped
@@ -168,9 +169,10 @@ class TestResearchFailFast:
             return {"answer": f"answer for {company}", "reasoning": "found", "confidence": "high"}
 
         with patch("explorium_cli.research.validate_anthropic_key", new_callable=AsyncMock):
+          with patch("explorium_cli.research.polish_prompt", new_callable=AsyncMock, return_value="polished"):
             with patch("explorium_cli.research.research_company", side_effect=mock_research):
                 results = await run_research(
-                    records, "test prompt", threads=1, no_polish=True
+                    records, "test prompt", threads=1
                 )
 
         # 3 should succeed, 1 should have error
@@ -200,7 +202,7 @@ class TestPolishFallback:
             with patch("explorium_cli.research.polish_prompt", side_effect=mock_polish):
                 with patch("explorium_cli.research.research_company", side_effect=mock_research):
                     results = await run_research(
-                        records, "raw question", threads=1, no_polish=False
+                        records, "raw question", threads=1
                     )
 
         assert "raw question" in results[0]["research_answer"]
@@ -240,7 +242,6 @@ class TestResearchCLIExitCodes:
                     "research", "run",
                     "-f", f.name,
                     "--prompt", "test",
-                    "--no-polish",
                 ])
 
         assert "All 2 research tasks failed" in result.stderr
@@ -268,7 +269,6 @@ class TestResearchCLIExitCodes:
                 "research", "run",
                 "-f", f.name,
                 "--prompt", "test",
-                "--no-polish",
             ])
 
         assert result.exit_code == 0
@@ -298,7 +298,6 @@ class TestResearchOutputFormat:
                 "research", "run",
                 "-f", f.name,
                 "--prompt", "test",
-                "--no-polish",
             ])
 
         assert result.exit_code == 0
@@ -326,7 +325,6 @@ class TestResearchOutputFormat:
                 "research", "run",
                 "-f", f.name,
                 "--prompt", "test",
-                "--no-polish",
             ])
 
         assert result.exit_code == 0
@@ -359,7 +357,6 @@ class TestResearchOutputFormat:
             "research", "run",
             "-f", input_path,
             "--prompt", "test",
-            "--no-polish",
         ])
 
         assert result.exit_code == 0
@@ -400,7 +397,6 @@ class TestResearchOutputFormat:
                 "research", "run",
                 "-f", f.name,
                 "--prompt", "test",
-                "--no-polish",
             ])
 
         assert result.exit_code == 0

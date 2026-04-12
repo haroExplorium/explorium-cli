@@ -169,7 +169,7 @@ Includes confidence scoring with a default threshold of `0.8` and suggestion dis
 > Set via `ANTHROPIC_API_KEY` env var. Uses `claude-sonnet-4-6` for research and `claude-haiku-4-5` for validation.
 
 Two-phase flow:
-1. **Prompt polishing** — rewrites user's raw question into a structured research prompt (skippable with `--no-polish`)
+1. **Prompt polishing** — rewrites user's raw question into a structured research prompt using Claude Sonnet
 2. **Parallel research** — async fan-out using `asyncio` + Anthropic's `AsyncAnthropic` client, one call per company
 
 Output format per company: `research_answer`, `research_reasoning`, `research_confidence`

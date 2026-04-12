@@ -199,7 +199,7 @@ AI-powered company research using Claude + web search. Requires `ANTHROPIC_API_K
 
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
-| `research run` | Research companies with AI + web search | `-f FILE`, `--prompt`, `--threads`, `--no-polish`, `--verbose`. Supports global `-o` and `--output-file` |
+| `research run` | Research companies with AI + web search | `-f FILE`, `--prompt`, `--threads`, `--verbose`. Supports global `-o` and `--output-file` |
 
 #### `research run`
 
@@ -209,7 +209,6 @@ Reads a CSV/JSON file, asks a question about each company using AI with web sear
 -f, --file FILENAME        Input CSV or JSON file with company records  [required]
 -p, --prompt TEXT          Research question to answer for each company  [required]
 -t, --threads INTEGER      Max concurrent research tasks (default: 10)
---no-polish                Skip prompt polishing with Sonnet
 -v, --verbose              Show detailed progress and polished prompt
 ```
 
@@ -217,7 +216,7 @@ Supports the global `-o {json|table|csv}` and `--output-file PATH` options for o
 
 **How it works:**
 1. Reads input file and auto-detects company name and domain columns
-2. Polishes the raw question into a precise research prompt using Claude Sonnet (skip with `--no-polish`)
+2. Polishes the raw question into a precise research prompt using Claude Sonnet
 3. Fans out research across all companies concurrently (controlled by `--threads`)
 4. Each company is researched using Claude Haiku with web search tool
 5. Results are merged back into the original records

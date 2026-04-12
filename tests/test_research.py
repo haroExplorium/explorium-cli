@@ -201,7 +201,6 @@ class TestRunResearch:
                 prompt="Is {company_name} a B2B company?",
                 threads=2,
                 max_searches=3,
-                no_polish=True,
                 verbose=False,
             )
 

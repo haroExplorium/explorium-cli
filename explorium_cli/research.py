@@ -69,7 +69,6 @@ async def run_research(
     prompt: str,
     threads: int = 10,
     max_searches: int = 1,
-    no_polish: bool = False,
     verbose: bool = False,
 ) -> list[dict[str, str]]:
     """Run research across all records concurrently.
@@ -79,7 +78,6 @@ async def run_research(
         prompt: The user's research question.
         threads: Max concurrent research tasks.
         max_searches: Max web searches per company.
-        no_polish: Skip prompt polishing with Sonnet.
         verbose: Print extra detail to stderr.
 
     Returns:
@@ -109,21 +107,16 @@ async def run_research(
         raise click.UsageError(str(e))
 
     # Polish prompt
-    if no_polish:
+    click.echo("Polishing prompt with Sonnet...", err=True)
+    try:
+        polished = await polish_prompt(prompt)
+        if verbose:
+            click.echo(f"Polished prompt:\n{polished}", err=True)
+        else:
+            click.echo("Prompt polished.", err=True)
+    except Exception as e:
+        click.echo(f"Warning: Prompt polishing failed ({e}). Falling back to raw prompt.", err=True)
         polished = prompt
-        click.echo("Skipping prompt polish (--no-polish)", err=True)
-    else:
-        click.echo("Polishing prompt with Sonnet...", err=True)
-        try:
-            polished = await polish_prompt(prompt)
-            if verbose:
-                click.echo(f"Polished prompt:\n{polished}", err=True)
-            else:
-                click.echo("Prompt polished.", err=True)
-        except Exception as e:
-            click.echo(f"Warning: Prompt polishing failed ({e}). Falling back to raw prompt.", err=True)
-            click.echo("Tip: Use --no-polish to skip this step.", err=True)
-            polished = prompt
 
     # Fan out research with abort mechanism for permanent errors
     semaphore = asyncio.Semaphore(threads)
