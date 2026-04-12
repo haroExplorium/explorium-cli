@@ -102,9 +102,9 @@ dist/explorium --version
 dist/explorium --help
 ```
 
-## Push Checklist
+## Commit & Push Checklist
 
-Before `git push`, confirm all of these:
+**Run this checklist before EVERY commit**, not just before push:
 
 - [ ] Tests pass (`pytest tests/ -v`)
 - [ ] Help text updated for any changed/added flags
