@@ -1,6 +1,6 @@
 ---
 name: vibe-prospecting-multistep-workflow
-version: 1.4.8
+version: 1.4.9
 description: Use when needing to enrich contacts with emails and phone numbers, match businesses or people to Explorium IDs, get firmographics, technographics, funding data, or do AI company research via CLI. For prospecting tasks (finding companies, searching prospects), use Vibe Prospecting MCP first, then use this CLI to enrich the results.
 ---
 
